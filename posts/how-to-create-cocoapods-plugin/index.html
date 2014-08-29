@@ -1,0 +1,145 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><meta content="IE=edge" http-equiv="X-UA-Compatible" /><meta content="width=device-width, initial-scale=1.0" name="viewport" /><title>CocoaPodsのプラグインを作る – blog.yujinakayama.me</title><link rel="alternate" type="application/atom+xml" title="Atom Feed" href="/feed.xml" /><link href="../../stylesheets/all-d4d309f2.css" rel="stylesheet" type="text/css" /></head><body><header><h1><a href="/">blog.yujinakayama.me</a></h1><nav class="social"><ul><li><a class="twitter" href="http://twitter.com/nkym37" target="_blank"><span class="text">Twitter</span></a></li><li><a class="github" href="https://github.com/yujinakayama" target="_blank"><span class="text">GitHub</span></a></li></ul></nav></header><main><article><h2 class="title"><a href="/posts/how-to-create-cocoapods-plugin/">CocoaPodsのプラグインを作る</a></h2><p class="date">Dec 14th, 2013</p><div class="body"><p>この記事は<a href="http://qiita.com/advent-calendar/2013/ios-2">iOS Second Stage Advent Calendar 2013</a>の14日目の記事です。</p>
+
+<h2 id="概要">概要</h2>
+
+<p>Cocoaのライブラリ管理ツールであるCocoaPodsですが、2013年11月14日にリリースされたバージョン0.28で、プラグイン機能が導入されました。</p>
+
+<ul>
+<li><a href="http://blog.cocoapods.org/CocoaPods-0.28/">CocoaPods 0.28 - CocoaPods Blog</a></li>
+</ul>
+
+<p>本記事ではこのプラグインの作り方を紹介します。</p>
+
+<h2 id="cocoapodsプラグインとは">CocoaPodsプラグインとは</h2>
+
+<p>CocoaPodsのプラグイン機能を利用すると、<code>pod</code>コマンドに任意のサブコマンドを追加することができます。標準サブコマンドの<code>pod install</code>や<code>pod update</code>と同列な、新たなサブコマンドの作成が可能です。</p>
+
+<p>CocoaPodsはRubyで作られたツールなので、プラグインもRubyで書く必要があります。また、プラグインの配布にはRubyGemsを利用します。</p>
+
+<p>このプラグインの仕組みそのものは、CocoaPodsプロジェクトが依存gemとして利用している<a href="https://github.com/CocoaPods/CLAide">CLAide</a>によって<a href="https://github.com/CocoaPods/CLAide/pull/3">可能になりました</a>。</p>
+
+<h2 id="プラグインを作る">プラグインを作る</h2>
+
+<p>ここでは<code>check-latest</code>というサブコマンドを定義する、<code>cocoapods-check_latest</code>というgemを作ることにします。これは指定したライブラリのpodの最新バージョンが、そのライブラリのGitHubリポジトリの最新のバージョンタグと同一かどうかをチェックするコマンドです。</p>
+
+<p>試しにCocoaPodsで導入してみたライブラリがうまく動作しないと思ったら、実は最新のpodspecで指定されているライブラリのバージョンが、そのライブラリの本当の最新バージョンではなかった（この表現わかりにくいですね）という場面がたまにあったりします。なので事前にpodspecが最新かどうかチェックしたいのですが、そのライブラリのGitHubのリポジトリをブラウザで開いてタグ一覧を確認、というのも割と面倒なルーチンワークなので、この作業を自動化することにします。</p>
+
+<p>まずは新しくgemのプロジェクトを作成します。<a href="http://bundler.io/">Bundler</a>を利用するのが良いでしょう。なお、gem名は<code>cocoapods-プラグイン名</code>にすることが公式に推奨されています。そうしないとプラグインとして動作しない訳ではありませんが、RubyGemsでの検索のしやすさも考慮した慣例になっています。RubyGemsを<code>cocoapods-</code>で<a href="http://rubygems.org/search?utf8=✓&amp;query=cocoapods-">検索</a>すれば、現在公開されているプラグインの一覧が見られる訳ですね。</p>
+<pre><code class="highlight shell"><span class="gp">$ </span>bundle gem cocoapods-check_latest
+...
+<span class="gp">$ </span><span class="nb">cd </span>cocoapods-check_latest
+</code></pre>
+
+<h3 id="コマンドクラスを作成する">コマンドクラスを作成する</h3>
+
+<p><code>Pod::Command</code>クラスを継承したコマンドクラスを作成します。</p>
+<pre><code class="highlight ruby"><span class="c1"># lib/pod/command/check_latest.rb</span>
+
+<span class="k">module</span> <span class="nn">Pod</span>
+  <span class="k">class</span> <span class="nc">Command</span>
+    <span class="c1"># クラス名からサブコマンド名が自動生成される。</span>
+    <span class="c1"># CamelCaseの単語間には"-"が挿入されるため、この場合"check-latest"になる。</span>
+    <span class="k">class</span> <span class="nc">CheckLatest</span> <span class="o">&lt;</span> <span class="no">Command</span>
+      <span class="c1"># 必須。`pod help`時に一行で表示される概要を記述する。</span>
+      <span class="nb">self</span><span class="p">.</span><span class="nf">summary</span> <span class="o">=</span> <span class="s1">'Check if the latest version of a pod is up to date'</span>
+
+      <span class="c1"># 任意。`pod help check-latest`時に表示される、より詳細な説明を記述する。</span>
+      <span class="c1"># 未指定の場合、summaryの内容が表示される。</span>
+      <span class="nb">self</span><span class="p">.</span><span class="nf">description</span> <span class="o">=</span> <span class="s1">'Some long description...'</span>
+
+      <span class="c1"># コマンドラインから引数を受け取るコマンドの場合は必須。</span>
+      <span class="c1"># `pod help check-latest`時に、</span>
+      <span class="c1">#</span>
+      <span class="c1"># Usage:</span>
+      <span class="c1">#     $ pod check-latest [NAME]</span>
+      <span class="c1">#                        ^^^^^^ ここに表示される。</span>
+      <span class="nb">self</span><span class="p">.</span><span class="nf">arguments</span> <span class="o">=</span> <span class="s1">'[NAME]'</span>
+
+      <span class="c1"># 引数を受け取るコマンドの場合は必須。</span>
+      <span class="c1"># argvから、後の処理で必要な引数をインスタンス変数に取り出しておく。</span>
+      <span class="c1"># この処理はsuper呼び出し前に行うこと。</span>
+      <span class="c1"># argvは、CLAide::ARGVのインスタンス。</span>
+      <span class="c1"># https://github.com/CocoaPods/CLAide/blob/v0.4.0/lib/claide/argv.rb</span>
+      <span class="k">def</span> <span class="nf">initialize</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
+        <span class="vi">@name</span> <span class="o">=</span> <span class="n">argv</span><span class="p">.</span><span class="nf">shift_argument</span>
+        <span class="k">super</span>
+      <span class="k">end</span>
+
+      <span class="c1"># 引数を受け取るコマンドの場合は必須。</span>
+      <span class="c1"># 引数が不正な場合はhelp!メソッドにメッセージを渡して中断する。</span>
+      <span class="k">def</span> <span class="nf">validate!</span>
+        <span class="k">super</span>
+        <span class="n">help!</span><span class="p">(</span><span class="s1">'A pod name is required.'</span><span class="p">)</span> <span class="k">unless</span> <span class="vi">@name</span>
+      <span class="k">end</span>
+
+      <span class="c1"># 実際の処理を記述する。</span>
+      <span class="k">def</span> <span class="nf">run</span>
+        <span class="c1"># 長いので省略。実際の内容は以下を参照して下さい。</span>
+        <span class="c1"># https://github.com/yujinakayama/cocoapods-check_latest/blob/v0.0.1/lib/pod/command/check_latest.rb</span>
+      <span class="k">end</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre>
+
+<p>ちなみに、CocoaPodsのサブコマンドを定義するということは、CocoaPods本体のAPIを利用できる訳ですが、現時点ではどのクラスやメソッドがpublic APIであるかという宣言がされていません。将来的にはこの辺りも整備されてくるとは思いますが、現状では利用対象のクラスやメソッドが存在しているかどうかのチェックや、例外処理などをこまめに行うしかない模様です。どちらにしてもCocoaPodsは未だにバージョン1.0未満の初期開発段階なので、<a href="http://semver.org/">Semantic Versioning</a>的にもAPIの互換性はあまり重視されないフェーズではあるのですが。</p>
+
+<h3 id="作成したコマンドが、podコマンド実行時に読み込まれるようにする">作成したコマンドが、<code>pod</code>コマンド実行時に読み込まれるようにする</h3>
+
+<p>コマンドを作成しただけでは、CocoaPods本体がその存在を認識できません。</p>
+
+<p>Rubyの<code>$LOAD_PATH</code>に登録されたパス直下（通常はプロジェクトの<code>lib</code>ディレクトリ直下）に、<code>cocoapods_plugin.rb</code>というファイルを作成し、その中で上記のコマンドクラスが記述されたファイルを<code>require</code>します。これによって<code>pod</code>コマンド実行時にカスタムコマンドクラスがロードされるようになります。</p>
+<pre><code class="highlight ruby"><span class="c1"># lib/cocoapods_plugin.rb</span>
+
+<span class="nb">require</span> <span class="s1">'pod/command/check_latest'</span>
+</code></pre>
+
+<h2 id="動作確認をする">動作確認をする</h2>
+
+<p>実際に<code>pod</code>コマンド経由で動くか確認してみましょう。</p>
+<pre><code class="highlight shell"><span class="gp">$ </span><span class="nb">echo</span> <span class="s2">"gem 'cocoapods', '~&gt; 0.28'"</span> &gt;&gt; Gemfile
+<span class="gp">$ </span>bundle install
+...
+<span class="gp">$ </span>bundle <span class="nb">exec </span>pod <span class="nb">help</span> | grep check-latest
+    <span class="k">*</span> check-latest   Check <span class="k">if </span>the latest version of a pod is up to date
+<span class="gp">$ </span>bundle <span class="nb">exec </span>pod check-latest viewcontroller
+
+
+<span class="gp">-&gt; </span>AMBubbleTableViewController
+   - Homepage: https://github.com/andreamazz/AMBubbleTableView
+   - Latest pod version:0.5.1
+   - Latest version <span class="k">in </span>original repo:0.5.1
+
+
+<span class="gp">-&gt; </span>APPinViewController
+   - Homepage: https://github.com/Alterplay/APPinViewController
+   - Latest pod version:1.0.2
+   - Latest version <span class="k">in </span>original repo:1.0.2
+
+
+<span class="gp">-&gt; </span>ARGenericTableViewController
+   - Homepage: https://github.com/arconsis/ARGenericTableViewController
+   - Latest pod version:1.0.0
+   - Latest version <span class="k">in </span>original repo:1.0.1
+   Outdated!
+
+...
+</code></pre>
+
+<h2 id="プラグインを配布する">プラグインを配布する</h2>
+
+<p>あとはRubyGemsのルールに則ってgemを公開しましょう。</p>
+
+<p><code>cocoapods-check_latest.gemspec</code>の<code>description</code>, <code>summary</code>, <code>homepage</code>あたりの項目を<a href="http://guides.rubygems.org/specification-reference/">記述</a>し、BundlerのRakeタスクで公開します。</p>
+<pre><code class="highlight shell"><span class="gp">$ </span>rake release
+</code></pre>
+
+<h2 id="おわりに">おわりに</h2>
+
+<p>実際に作成した<a href="https://github.com/yujinakayama/cocoapods-check_latest">cocoapods-check_latest</a>プラグインを公開しました。<code>gem install cocoapods-check_latest</code>でインストールができます。</p>
+</div></article></main><footer><p class="copyright">&copy; 2013–2014 Yuji Nakayama</p></footer><script src="../../javascripts/all-da39a3ee.js" type="text/javascript"></script><script type="text/javascript">(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+ga('create', 'UA-42195703-1', 'yujinakayama.me');
+ga('send', 'pageview');</script></body></html>

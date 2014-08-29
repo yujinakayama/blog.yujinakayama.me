@@ -1,0 +1,232 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><meta content="IE=edge" http-equiv="X-UA-Compatible" /><meta content="width=device-width, initial-scale=1.0" name="viewport" /><title>FBSnapshotTestCaseでUIViewの描画をテストする – blog.yujinakayama.me</title><link rel="alternate" type="application/atom+xml" title="Atom Feed" href="/feed.xml" /><link href="../../stylesheets/all-d4d309f2.css" rel="stylesheet" type="text/css" /></head><body><header><h1><a href="/">blog.yujinakayama.me</a></h1><nav class="social"><ul><li><a class="twitter" href="http://twitter.com/nkym37" target="_blank"><span class="text">Twitter</span></a></li><li><a class="github" href="https://github.com/yujinakayama" target="_blank"><span class="text">GitHub</span></a></li></ul></nav></header><main><article><h2 class="title"><a href="/posts/testing-uiview-drawing-with-fbsnapshottestcase/">FBSnapshotTestCaseでUIViewの描画をテストする</a></h2><p class="date">Feb 14th, 2014</p><div class="body"><p>先日、iOS 7のMusic.app内の再生状態インジケータのクローンなビュー、<a href="https://github.com/yujinakayama/NAKPlaybackIndicatorView"><code>NAKPlaybackIndicatorView</code></a>を作りました。</p>
+
+<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/music_app-5b27249f.png" width="320" height="150" alt="Music.app" /></p>
+
+<p>このプロジェクトでは、ビューが期待通りに描画できているかのテストに<code>FBSnapshotTestCase</code>というものを使っています。</p>
+
+<h2 id="fbsnapshottestcaseとは">FBSnapshotTestCaseとは</h2>
+
+<p><a href="https://github.com/facebook/ios-snapshot-test-case"><code>FBSnapshotTestCase</code></a>は、
+Facebookによる、ビューの“snapshot test”ライブラリです。
+“snapshot test”とは、テスト対象の<code>UIView</code>または<code>CALayer</code>に表示されたコンテンツのスナップショットを撮り、
+事前に用意しておいた“reference image”（PNG画像）と同一かどうかをピクセルレベルでチェックすることで、
+将来の予期しない表示崩れを検出するものです。</p>
+
+<p><code>FBSnapshotTestCase</code>は<code>XCTestCase</code>のサブクラスであり、snapshot test用のヘルパーメソッドやマクロを追加した程度のものなので、
+特にsnapshot testでない通常のテストを実行することも可能です。</p>
+
+<p>蛇足ですが、
+「ビューの表面に関わる」テストというと
+<a href="https://github.com/kif-framework/KIF">KIF</a>
+や
+<a href="http://www.testingwithfrank.com">Frank</a>
+などによるエンドツーエンドが一瞬連想されますが、
+これらはUIを介してアプリ全体の機能をテストするものであり、
+単体のビューの描画内容をテストするsnapshot testとは別物です。</p>
+
+<h2 id="使い方">使い方</h2>
+
+<h3 id="インストール">インストール</h3>
+
+<p><a href="http://cocoapods.org">CocoaPods</a>でインストールが可能です。</p>
+<pre><code class="highlight ruby"><span class="c1"># Podfile</span>
+
+<span class="n">target</span> <span class="s1">'MyProjectTests'</span> <span class="k">do</span>
+  <span class="n">pod</span> <span class="s1">'FBSnapshotTestCase'</span><span class="p">,</span> <span class="s1">'~&gt; 1.0'</span>
+<span class="k">end</span>
+</code></pre>
+
+<h3 id="reference-imageファイルを置くディレクトリのパスを設定する">Reference Imageファイルを置くディレクトリのパスを設定する</h3>
+
+<p>Reference imageを保存するディレクトリのパスを、プリプロセッサマクロ<code>FB_REFERENCE_IMAGE_DIR</code>で定義します。</p>
+
+<p>公式には以下の記述をxcconfigファイルに追加する<a href="https://github.com/facebook/ios-snapshot-test-case/blob/1.0/FBSnapshotTestCase.h#L11-L13">例</a>が挙げられています。</p>
+<pre><code class="highlight plaintext">GCC_PREPROCESSOR_DEFINITIONS = $(inherited) FB_REFERENCE_IMAGE_DIR="\"$(SOURCE_ROOT)/$(PROJECT_NAME)Tests/ReferenceImages\""
+</code></pre>
+
+<p>しかし今回はCocoaPodsによって既にxcconfigファイルが自動生成されてしまっており、
+ここに手動で設定を追加するのはメンテナンス性に欠けるため、プロジェクトそのもののBuild Settingsに設定を追加することにします。
+以下のように、テストターゲットの <strong>Build Settings</strong> 内、 <strong>Preprosessor Macros</strong> に<code>FB_REFERENCE_IMAGE_DIR=&quot;\&quot;$(SOURCE_ROOT)/$(PROJECT_NAME)Tests/ReferenceImages\&quot;&quot;</code>を追加します。テストターゲットのファイル群を入れているディレクトリ名をXcodeデフォルトの<code>$(PROJECT_NAME)Tests</code>から変更している場合は、パス中のその部分を合わせます。また、ソース内への展開時に<a href="https://github.com/facebook/ios-snapshot-test-case/blob/1.0/FBSnapshotTestCase.h#L24">Cの文字列リテラルになる必要がある</a>ことに注意して下さい。</p>
+
+<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/fb_reference_image_dir-b88bb69e.png" alt="FB_REFERENCE_IMAGE_DIR" /></p>
+
+<p>ちなみにこの例ではXcodeのビルド設定<code>SOURCE_ROOT</code>や<code>PROJECT_NAME</code>の値を参照しているため、
+ソース内で<code>#define</code>してもこれらは展開されません。</p>
+
+<h3 id="テストケースクラスを準備する">テストケースクラスを準備する</h3>
+
+<p>既存の<code>XCTestCase</code>なテストのスーパークラスを<code>FBSnapshotTestCase</code>に変えるか、
+新しく<code>FBSnapshotTestCase</code>を継承したクラスを作成します。</p>
+
+<p>その後、<code>-setUp</code>メソッド内に<code>self.recordMode = NO;</code>（詳細は後述）を加えます。</p>
+
+<p>雛形としては以下のような形になります。</p>
+<pre><code class="highlight objective_c"><span class="cp">#import &lt;XCTest/XCTest.h&gt;
+#import &lt;FBSnapshotTestCase/FBSnapshotTestCase.h&gt;
+</span>
+<span class="k">@interface</span> <span class="nc">SnapshotTests</span> <span class="p">:</span> <span class="nc">FBSnapshotTestCase</span>
+<span class="k">@end</span>
+
+<span class="k">@implementation</span> <span class="nc">SnapshotTests</span>
+
+<span class="k">-</span> <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">setUp</span>
+<span class="p">{</span>
+    <span class="p">[</span><span class="n">super</span> <span class="nf">setUp</span><span class="p">];</span>
+    <span class="n">self</span><span class="p">.</span><span class="n">recordMode</span> <span class="o">=</span> <span class="nb">NO</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="k">@end</span>
+</code></pre>
+
+<h3 id="テストを書く">テストを書く</h3>
+
+<p>通常の<code>XCTestCase</code>のテストと同様に、<code>test</code>で始まるメソッド内にテストを記述します。</p>
+
+<p>テスト対象となるビューを用意し、スナップショットを撮りたい状態にしたら、<code>FBSnapshotVerifyView</code>マクロにビューを渡します。
+ここでは、<code>UILabel</code>によってテキストがちゃんと描画されるかテストすることにします。</p>
+<pre><code class="highlight objective_c"><span class="k">-</span> <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">testLabel</span>
+<span class="p">{</span>
+    <span class="n">UILabel</span> <span class="o">*</span><span class="n">label</span> <span class="o">=</span> <span class="p">[[</span><span class="n">UILabel</span> <span class="nf">alloc</span><span class="p">]</span> <span class="nf">initWithFrame</span><span class="p">:</span><span class="n">CGRectZero</span><span class="p">];</span>
+    <span class="n">label</span><span class="p">.</span><span class="n">text</span> <span class="o">=</span> <span class="s">@"Foo"</span><span class="p">;</span>
+    <span class="p">[</span><span class="n">label</span> <span class="nf">sizeToFit</span><span class="p">];</span>
+    <span class="n">FBSnapshotVerifyView</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="nb">nil</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre>
+
+<p>さて、ここで <strong>⌘U</strong> でテストを実行してみましょう。
+現在のバージョン1.0.0では実機でのテストはサポートされていないので、シミュレータで実行します。
+すると以下のようなエラーでテストが失敗します。</p>
+<pre><code class="highlight plaintext">...
+Snapshot comparison failed:
+Error Domain=FBTestSnapshotControllerErrorDomain
+Code=1 "Unable to load reference image."
+UserInfo=0xa849a70 {NSLocalizedFailureReason=Reference image not found. You need to run the test in record mode,
+...
+</code></pre>
+
+<p>Reference imageが無いと言われています。当然です。まだ用意していません。</p>
+
+<p>しかし、実はreference imageを自前で用意する必要は基本的にありません。
+前述の<code>self.recordMode</code>を<code>YES</code>にしてテストを実行すると、
+<code>FBSnapshotVerifyView</code>マクロは常に成功し、
+現在のビューのスナップショットをreference imageとして保存するようになります。
+逆に言えばテストをしなくなるので、<code>self.recordMode = YES;</code>の状態で
+Gitなどのバージョン管理システムにコミットしてはいけません。</p>
+
+<p>さて、実際に<code>self.recordMode = YES;</code>に変更してテストを実行してみるとパスするはずです。
+その後<code>git status</code>をしてみると、
+<code>MyProjectTests/ReferenceImages/SnapshotTests/testLabel@2x.png</code>のようなファイルが生成されており、
+<code>Preview.app</code>なりで開いてみると以下のような内容になっているのが確認できます。</p>
+
+<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/testLabel@2x-75555f83.png" width="30" height="21" alt="Foo" class="border" /></p>
+
+<p>適切に表示されているのが確認できたら<code>self.recordMode = NO;</code>に戻し、もう一度テストを実行してパスすることを確認します。
+その後、テストファイルと生成された画像ファイルをコミットします。</p>
+
+<p>これによって今後、ビューがこの画像と同一の内容を描画するかどうかがチェックされることになります。
+一度目視確認してしまえば、後はずっと自動化してくれる訳ですね。</p>
+
+<p>ここまでが基本的なワークフローになります。</p>
+
+<ol>
+<li>テストを書く</li>
+<li><code>self.recordMode = YES;</code>でテストを実行する</li>
+<li>生成された画像を目視で確認する
+
+<ul>
+<li>画像の内容が適切であれば<code>self.recordMode = NO;</code>に戻し、画像と一緒にコミットする</li>
+<li>画像の内容が意図したものでない場合は、意図した表示になるまでビューの実装側のコードを修正、テスト実行（画像生成）、目視確認を繰り返す</li>
+</ul></li>
+</ol>
+
+<h3 id="テストの失敗">テストの失敗</h3>
+
+<p>Reference imageがちゃんと用意されているテストが失敗すると、
+Xcodeのコンソールに以下のようなログが表示されます。</p>
+<pre><code class="highlight plaintext">If you have Kaleidoscope installed you can run this command to see an image diff:
+ksdiff "/Users/me/Library/Application Support/iPhone Simulator/7.0.3/Applications/66392008-F6EB-4C2C-BAE8-90977D37893A/tmp/SnapshotTests/reference_testLabel@2x.png" "/Users/me/Library/Application Support/iPhone Simulator/7.0.3/Applications/66392008-F6EB-4C2C-BAE8-90977D37893A/tmp/SnapshotTests/failed_testLabel@2x.png"
+</code></pre>
+
+<p>この<code>ksdiff</code>の行をターミナルで実行すると、
+GUI diffツールの<a href="http://www.kaleidoscopeapp.com/">Kaleidoscope</a>（有償）で画像の差分が確認できます。
+Kaleidoscopeを持っていない場合は、<code>failed_xxx.png</code>の方のファイルを開けば失敗した画像を確認できます。</p>
+
+<h2 id="tips">Tips</h2>
+
+<h3 id="reference-imageのパス">Reference Imageのパス</h3>
+
+<p>Reference imageは、<code>FB_REFERENCE_IMAGE_DIR</code>以下に<code>テストケースクラス名/テストメソッド名.png</code>で保存されます。
+また、<code>FBSnapshotVerifyView</code>の第2引数に適当な識別子となる<code>NSString</code>を渡すと、それがファイル名に追加されます。
+一つのテストメソッド内で複数回<code>FBSnapshotVerifyView</code>を使う場合に有効です。</p>
+<pre><code class="highlight objective_c"><span class="k">-</span> <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">testLabel</span>
+<span class="p">{</span>
+    <span class="n">UILabel</span> <span class="o">*</span><span class="n">label</span> <span class="o">=</span> <span class="p">[[</span><span class="n">UILabel</span> <span class="nf">alloc</span><span class="p">]</span> <span class="nf">initWithFrame</span><span class="p">:</span><span class="n">CGRectZero</span><span class="p">];</span>
+
+    <span class="n">label</span><span class="p">.</span><span class="n">text</span> <span class="o">=</span> <span class="s">@"Foo"</span><span class="p">;</span>
+    <span class="p">[</span><span class="n">label</span> <span class="nf">sizeToFit</span><span class="p">];</span>
+    <span class="n">FBSnapshotVerifyView</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="s">@"foo"</span><span class="p">);</span>
+    <span class="c1">// MyProjectTests/ReferenceImages/SnapshotTests/testLabel_foo@2x.png
+</span>
+    <span class="n">label</span><span class="p">.</span><span class="n">text</span> <span class="o">=</span> <span class="s">@"Bar"</span><span class="p">;</span>
+    <span class="p">[</span><span class="n">label</span> <span class="nf">sizeToFit</span><span class="p">];</span>
+    <span class="n">FBSnapshotVerifyView</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="s">@"bar"</span><span class="p">);</span>
+    <span class="c1">// MyProjectTests/ReferenceImages/SnapshotTests/testLabel_bar@2x.png
+</span><span class="p">}</span>
+</code></pre>
+
+<p>が、基本的には1メソッド1アサーションとし、第2引数は<code>nil</code>で省略した方が良いと思います。</p>
+
+<h3 id="retina・非retina">Retina・非Retina</h3>
+
+<p>既にお気付きかと思いますが、画像はRetina用と非Retina用で別々に書き出されるので、
+非Retina環境でビューの位置が0.5ポイントずれて表示がボケるようなケースにも対応できます。
+Rakeやシェルスクリプトを使って、一挙にRetinaと非Retina両方でテストを実行するようなタスクを準備しておくと便利です。</p>
+
+<h3 id="ビューの内部実装に非依存">ビューの内部実装に非依存</h3>
+
+<p><code>FBSnapshotTestCase</code>は<code>-[CALayer renderInContext:]</code>を使ってスナップショットを撮っており、
+これでキャプチャできるものであれば、
+内部的に複数のサブビューを組み合わせていようが、CALayerを使っていようが、
+Core Graphicsを使っていようが、<code>UIImageView</code>で画像を貼付けているだけであろうが、何でもかまいません。
+パフォーマンス上の都合から内部実装を大きく変えつつ描画内容は変えない、といったリファクタリングにも有効そうですね。</p>
+
+<h3 id="何から何までスナップショットを撮らなくても良い">何から何までスナップショットを撮らなくても良い</h3>
+
+<p>特に既存のライブラリにテストを追加する場合、いきなりあらゆるケースを網羅しようとするとしんどいので、
+エッジケースで表示崩れのバグが見つかった場合にテストを追加する程度で良い気がしています。
+そもそも<code>recordMode</code>の仕組みとワークフローからしてリグレッションテスト向きで、
+実際<code>FBSnapshotTestCase</code>はそのような動機で開発されたようです。</p>
+
+<blockquote>
+<p>At Facebook we write a lot of UI code. As you might imagine, each type of feed story is rendered using a subclass of UIView. There are a lot of edge cases that we want to handle correctly:</p>
+
+<p>&hellip;</p>
+</blockquote>
+
+<h3 id="自分でreference-imageを作っても良い">自分でReference Imageを作っても良い</h3>
+
+<p><code>self.recordMode = YES;</code>でreference imageを自動生成できますが、
+自前で画像を用意してもかまいません。
+あまりなさそうなケースですが、完成イメージが固まっていて描画内容が比較的単純な場合、
+適当な画像編集ツールでreference imageを先に作っておくことで、テストファーストなビュー開発をすることもできそうです。
+今回の<code>NAKPlaybackIndicatorView</code>なんかはまさに打ってつけですね（実際は途中から導入したのでテストファーストではありませんでしたが）。</p>
+
+<h2 id="感想">感想</h2>
+
+<p>正直なところ、最初はビューの描画テストなんてものすごい面倒くさくて割に合わないものかと思っていましたが、
+下準備が済んでテストを追加するワークフローに入ってしまえば想像より断然楽でした。
+<code>CGRect</code>のアサーションをちまちま書いたりするより早いし、
+何より画像を目視確認できるので複雑で難解なアサーションを読み解く必要もありません。
+実際<code>NAKPlaybackIndicatorView</code>では、
+<code>CALayer</code>の<code>anchorPoint</code>と<code>position</code>プロパティの兼ね合いで描画位置がずれていたのに気付くことができました。</p>
+
+<p><code>FBSnapshotTestCase</code>はGitHubでスターが現在350ほども付いているにも関わらず、
+今のところ英語圏も含めて紹介している記事が見当たりませんが、
+ビューのテストを考えているのであれば一度試してみてはいかがでしょうか。
+特に汎用化したOSSなビューライブラリなどでは、使う価値は十分あると思います。</p>
+</div></article></main><footer><p class="copyright">&copy; 2013–2014 Yuji Nakayama</p></footer><script src="../../javascripts/all-da39a3ee.js" type="text/javascript"></script><script type="text/javascript">(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+ga('create', 'UA-42195703-1', 'yujinakayama.me');
+ga('send', 'pageview');</script></body></html>

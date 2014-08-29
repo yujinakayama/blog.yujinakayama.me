@@ -1,0 +1,115 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><meta content="IE=edge" http-equiv="X-UA-Compatible" /><meta content="width=device-width, initial-scale=1.0" name="viewport" /><title>RuboCop 0.9.0 – blog.yujinakayama.me</title><link rel="alternate" type="application/atom+xml" title="Atom Feed" href="/feed.xml" /><link href="../../stylesheets/all-d4d309f2.css" rel="stylesheet" type="text/css" /></head><body><header><h1><a href="/">blog.yujinakayama.me</a></h1><nav class="social"><ul><li><a class="twitter" href="http://twitter.com/nkym37" target="_blank"><span class="text">Twitter</span></a></li><li><a class="github" href="https://github.com/yujinakayama" target="_blank"><span class="text">GitHub</span></a></li></ul></nav></header><main><article><h2 class="title"><a href="/posts/rubocop-0-9-0/">RuboCop 0.9.0</a></h2><p class="date">Jul 3rd, 2013</p><div class="body"><p>2013年7月1日、RuboCop 0.9.0 がリリースされました。といっても RuboCop をご存知ない方も多いかと思うので、まずは概要から。</p>
+
+<h2 id="rubocop-とは">RuboCop とは</h2>
+
+<p><a href="https://github.com/bbatsov/rubocop">RuboCop</a> は Ruby のコーディングスタイルチェッカーです。Ruby コードを静的解析し、コーディングスタイル違反を検出します。Java で言う <a href="http://checkstyle.sourceforge.net">Checkstyle</a> みたいなものですね。</p>
+
+<p>RuboCop は、コーディングスタイルとして <a href="http://github.com/bbatsov/ruby-style-guide">Ruby Style Guide</a> を採用しています。むしろ、Ruby Style Guide の適用を押し進めるために RuboCop が作られたという方が正しいかもしれません。これは <a href="https://github.com/bbatsov">Bozhidar Batsov</a> 氏が始めたコミュニティ主導のスタイルガイドプロジェクトで、GitHub 社内で使われている <a href="https://github.com/styleguide/ruby">Ruby Styleguide</a> のベースにもなっており、Rubyist ならご存知の方も多いでしょう。</p>
+
+<p>Ruby のコードメトリックスツールとしては他に <a href="https://github.com/square/cane">Cane</a> や <a href="https://github.com/troessner/reek">Reek</a> などがありますが、これらはいわゆる「コードの臭い」を測定するものであり、コーディングスタイルを本格的にチェックするツールはこれまでなかったように思います。</p>
+
+<p>RuboCop は、スタイル違反をチェックする cop（警官）達の集合体として構成されています。例えば、1行あたりの文字数をチェックする <code>LineLength</code> cop、メソッド名や変数名が snake_case になっているかチェックする <code>MethodAndVariableSnakeCase</code> cop、と言った形で、チェックする項目ごとに専任の cop が実装されています。</p>
+
+<h3 id="インストール">インストール</h3>
+
+<p>普通に <code>gem</code> コマンドでインストールできます。</p>
+<pre><code class="highlight shell"><span class="gp">$ </span>gem install rubocop
+</code></pre>
+
+<h3 id="実行">実行</h3>
+
+<p>チェックしたい Ruby のソースファイルがあるディレクトリ内で <code>rubocop</code> コマンドを実行します。典型的にはプロジェクトルートディレクトリになるでしょう。</p>
+<pre><code class="highlight shell"><span class="gp">$ </span><span class="nb">cd </span>some-project
+<span class="gp">$ </span>rubocop
+</code></pre>
+
+<p>この場合、カレントディレクトリ以下の、拡張子が <code>.rb</code> であるファイル、または拡張子が無く shebang（ファイル1行目の <code>#!</code> で始まる行）に <code>ruby</code> が含まれるファイルがチェック対象となります。</p>
+
+<p>おそらく上記のコマンドを既存のプロジェクトに対して実行すると、大量のスタイル違反が検出されるかと思います。</p>
+
+<h3 id="設定">設定</h3>
+
+<p>RuboCop の挙動は、設定を記述した <code>.rubocop.yml</code> ファイルを置くことで、ディレクトリ単位で変更することができます。</p>
+
+<p>例えば <code>.rubocop.yml</code> に以下のような内容を記述すると、</p>
+<pre><code class="highlight yaml"><span class="s">Eval</span><span class="pi">:</span>
+  <span class="s">Enabled</span><span class="pi">:</span> <span class="s">false</span>
+
+<span class="s">LineLength</span><span class="pi">:</span>
+  <span class="s">Max</span><span class="pi">:</span> <span class="s">100</span>
+</code></pre>
+
+<ul>
+<li><code>Kernel.#eval</code> メソッドの利用を警告する <code>Eval</code> cop を無効化</li>
+<li>1行あたりの最大文字数を100文字に設定（デフォルトは79文字）</li>
+</ul>
+
+<p>といったカスタマイズができます。</p>
+
+<p>既存のプロジェクトで RuboCop を使う場合、一旦最初は大半の cop を無効にしておき、一部 cop を有効化、違反箇所を修正、コミット、といった繰り返しで徐々にスタイルを適合させていくと良いのではないでしょうか。</p>
+
+<h2 id="バージョン-0.9.0-の新機能">バージョン 0.9.0 の新機能</h2>
+
+<p>さて、今回の 0.9.0 の新機能です。</p>
+
+<h3 id="formatter">Formatter</h3>
+
+<p>RSpec の formatter に似た仕組みを導入しました。<code>-f/--format</code> オプションで、結果の出力書式を切り替えられるようになっています。</p>
+
+<p>これに伴い、標準の組み込み formatter もいくつか追加しています。</p>
+
+<ul>
+<li><code>progress</code> — RSpec の progress formatter ライクな、ドットによる進捗表示（デフォルト）</li>
+<li><code>clang</code> — 違反箇所を Clang の診断結果ライクに表示（後述）</li>
+<li><code>json</code> — 解析結果を JSON で出力</li>
+</ul>
+
+<p>また、独自の formatter クラスを作成することで、<a href="https://github.com/bbatsov/rubocop#custom-formatters">カスタムフォーマッタ</a>を利用することも可能です。</p>
+
+<h3 id="違反箇所の詳細な表示">違反箇所の詳細な表示</h3>
+
+<p>前述の <code>clang</code> formatter がこれにあたります。その名の通り <a href="http://clang.llvm.org/diagnostics.html">Clang の診断結果</a> ライクに、違反箇所のハイライト表示をします。<code>progress</code> formatter も、解析完了後にサマリーとしてこの形式で表示をするようになっています。</p>
+<pre><code class="highlight plaintext">features/support/helper.rb:6:3: W: Assigned but unused variable - stdin
+  stdin, stdout, stderr, thread = Open3.popen3(*command)
+  ^^^^^
+</code></pre>
+
+<h3 id="ruby-の実装エンジン非依存の構文チェック">Ruby の実装エンジン非依存の構文チェック</h3>
+
+<p>RuboCop はスタイルのチェックだけでなく、<code>ruby -cw</code> で警告されるような基本的な構文チェックも行います。例えば、利用していないローカル変数の検出なんかがこれにあたります。</p>
+
+<p>バージョン 0.9.0 以前は、まさにそのまま <code>ruby -cw</code> コマンドを対象ファイル毎に実行してその出力をパースしていたのですが、この機能は MRI (CRuby) のみで有効で、JRuby や Rubinius ではスキップされていました（RuboCop は JRuby や Rubinius もサポートしています）。この理由として、JRuby は JVM 上で動くためプロセスの立ち上がりが非常に遅く実用に耐えないこと、また Rubinius は警告のバリエーションが MRI ほど充実していなかったことなどがあります。</p>
+
+<p>RuboCop 0.9.0 では、MRI 2.0 で出力される警告のうち、一部をピュア Ruby で RuboCop 内に再実装し、依存 gem である <a href="https://github.com/whitequark/parser">Parser</a> からの警告と合わせることで警告バリエーションの大半をカバーしており、JRuby や Rubinius 上でも同様に動作する構文チェックを実現しています。</p>
+
+<h3 id="違反コードの自動修正">違反コードの自動修正</h3>
+
+<p>これはまだ実験的な機能であり、ごく一部の cop でしかサポートされていませんが、<code>-a/--auto-correct</code> オプションによって違反箇所を自動的に修正することが可能となっています。</p>
+
+<p>個人的にはこの機能の今後にはかなり期待しています。初めて RuboCop を使ってみて、大量の違反が検出された時点で修正する気をなくす人は多いでしょうし、チームでこういったスタイルチェッカーを導入する際にも「面倒くさい」といった心の声は確実に存在すると思います。</p>
+
+<p>メソッドやクラスレベルのリファクタリングを要求するような違反（長過ぎるメソッドなど）の自動修正は難しいですが、書式の変換程度で済むような違反は、今後の実装でほぼ自動修正が可能になるのではないでしょうか。</p>
+
+<h3 id="rails-cop">Rails Cop</h3>
+
+<p>これも実験段階でまだ一つの cop しか実装されていませんが、<a href="https://github.com/bbatsov/rails-style-guide">Rails Style Guide</a> をベースとした Rails 用 cop が追加されました。<code>-R/--rails</code> オプションを指定した場合のみ有効になります。</p>
+
+<h3 id="その他">その他</h3>
+
+<p>多くの cop の追加やバグフィックスが含まれています。
+詳細は <a href="https://github.com/bbatsov/rubocop/blob/master/CHANGELOG.md#090-01072013">Changelog</a> をご覧下さい。</p>
+
+<h2 id="1.0-に向けて">1.0 に向けて</h2>
+
+<p>次期バージョンの 1.0 では、前述の 0.9 で導入された機能のブラッシュアップを予定しています。</p>
+
+<p>実は僕も少し前から RuboCop の開発に<a href="https://github.com/bbatsov/rubocop/graphs/contributors">参加しています</a>。
+ファイル変更時に自動的に RuboCop を実行する <a href="https://github.com/guard/guard">Guard</a> プラグイン、<a href="https://github.com/yujinakayama/guard-rubocop">guard-rubocop</a> も書いたので、Guard ファンの方は是非どうぞ。</p>
+
+<p>あなたも RuboCop を使って、ナウでヤングな Rubyist になりませんか？</p>
+</div></article></main><footer><p class="copyright">&copy; 2013–2014 Yuji Nakayama</p></footer><script src="../../javascripts/all-da39a3ee.js" type="text/javascript"></script><script type="text/javascript">(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+ga('create', 'UA-42195703-1', 'yujinakayama.me');
+ga('send', 'pageview');</script></body></html>

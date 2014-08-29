@@ -1,0 +1,145 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><meta content="IE=edge" http-equiv="X-UA-Compatible" /><meta content="width=device-width, initial-scale=1.0" name="viewport" /><title>RSpecの最新の動向・RSpec 3へのアップグレードガイド – blog.yujinakayama.me</title><link rel="alternate" type="application/atom+xml" title="Atom Feed" href="/feed.xml" /><link href="../../stylesheets/all-d4d309f2.css" rel="stylesheet" type="text/css" /></head><body><header><h1><a href="/">blog.yujinakayama.me</a></h1><nav class="social"><ul><li><a class="twitter" href="http://twitter.com/nkym37" target="_blank"><span class="text">Twitter</span></a></li><li><a class="github" href="https://github.com/yujinakayama" target="_blank"><span class="text">GitHub</span></a></li></ul></nav></header><main><article><h2 class="title"><a href="/posts/latest-changes-of-rspec-3/">RSpecの最新の動向・RSpec 3へのアップグレードガイド</a></h2><p class="date">Dec 6th, 2013</p><div class="body"><p>この記事は<a href="http://qiita.com/advent-calendar/2013/ruby">Ruby Advent Calendar 2013</a>の6日目の記事です。</p>
+
+<h2 id="概要">概要</h2>
+
+<p>Rubyのデファクトスタンダードなテストフレームワークと言えるRSpecですが、現在バージョン3.0のリリースへ向けて開発が進められており、先日2013年11月8日には3.0.0.beta1がリリースされました。</p>
+
+<p>この記事ではRSpec 3における変更点と、3.0.0.beta1へのアップグレード手順、また既存のspecを最新の記法に変換するツールを紹介します。</p>
+
+<h3 id="追記">追記</h3>
+
+<p>RSpec 3は2014年6月2日に正式リリースされました。この記事は2013年12月6日に書かれたものですが、正式版においても通用する内容になっています。</p>
+
+<p>正式版における主要な変更点は、以下のページが参考になるでしょう。</p>
+
+<ul>
+<li><a href="http://myronmars.to/n/dev-blog/2014/05/notable-changes-in-rspec-3">Myron Marston » Notable Changes in RSpec 3</a></li>
+<li><a href="https://github.com/yujinakayama/transpec#supported-conversions">yujinakayama/transpec - Supported Conversions</a></li>
+</ul>
+
+<h2 id="rspec-3での変更">RSpec 3での変更</h2>
+
+<p>RSpec 3は、2010年10月の2.0リリース以来3年ぶりのメジャーバージョンアップとなるため、多くのdeprecatedな機能が削除されます。</p>
+
+<h3 id="the-plan-for-rspec-3">The Plan for RSpec 3</h3>
+
+<p>RSpec 3がどのようなものになるかは、RSpecプロジェクトのリードメンテナMyron Marston氏が今年2013年7月に記事を書いています。</p>
+
+<ul>
+<li><a href="http://myronmars.to/n/dev-blog/2013/07/the-plan-for-rspec-3">Myron Marston » The Plan for RSpec 3</a></li>
+<li><a href="http://nilp.hatenablog.com/entry/2013/07/16/131641">RSpec 3に向けての計画(日本語訳) - 有頂天Ruby</a></li>
+</ul>
+
+<p>その後、基本的にはこの計画通りに開発は進んでおり、3.0.0.beta1ではこのうちの一部が実装されています。具体的には、 <em>What’s Being Removed</em> で挙げられている項目は全て実装（というか削除）が完了しています。また <em>What’s New</em> の項目に関しては以下の3つが実装されています。</p>
+
+<ul>
+<li><a href="http://myronmars.to/n/dev-blog/2013/07/the-plan-for-rspec-3#mocks_test_double_interface_verification">Mocks: Test double interface verification</a>（Mocks: テストダブルのインターフェースの検証）</li>
+<li><a href="http://myronmars.to/n/dev-blog/2013/07/the-plan-for-rspec-3#core_dsl_methods_will_yield_the_example">Core: DSL methods will yield the example</a>（Core: DSLメソッドがexampleをyieldするようになる）</li>
+<li><a href="http://myronmars.to/n/dev-blog/2013/07/the-plan-for-rspec-3#mocks__block_implementations_will_yield_the_receiver">Mocks: <code>any_instance</code> block implementations will yield the receiver</a>（Mocks: <code>any_instance</code>がブロック実装にreceiverをyieldするようになる）</li>
+</ul>
+
+<h3 id="その後の変更">その後の変更</h3>
+
+<p>The Plan for RSpec 3はあくまでも7月時点での計画だったため、その後追加された変更があります。</p>
+
+<h4 id="be_true/be_falseマッチャのリネーム"><code>be_true</code>/<code>be_false</code>マッチャのリネーム</h4>
+
+<p><code>be_true</code>/<code>be_false</code>マッチャが、<code>be_truthy</code>/<code>be_falsey</code>（または<code>be_falsy</code>）にリネームされ、3.0では<code>be_true</code>/<code>be_false</code>は利用できなくなります。この変更は既に3.0.0.beta1に取り込まれています。</p>
+
+<p>この理由ですが、</p>
+
+<ul>
+<li><code>be_true</code>は、その名前にもかかわらず、テスト対象が真（<code>false</code>, <code>nil</code>以外）であればパスしており、<code>true</code>との同一性はテストされていなかった。</li>
+<li><code>be_false</code>も同様に、テスト対象が偽（<code>false</code>, <code>nil</code>）であればパスしており、<code>false</code>との同一性はテストされていなかった。</li>
+</ul>
+
+<p>といったように、名前と挙動が一致していませんでした。</p>
+
+<p>今回の変更は、これまでの挙動に名前を合わせた形になります。実際のところ<code>be_true</code>/<code>be_false</code>はpredicate method（<code>?</code>で終わるメソッド）のテストに使われることが多く、それらは直接<code>if</code>文などの条件部に置かれることが多いため、この挙動が問題になるケースはあまりなかったように思います。</p>
+
+<p>既存のspecをどうするべきかですが、この挙動を以前から知っていて敢えて使っていた、もしくは知らなかったけど特にそこまでの厳格さを求めない、ということであれば、<code>be_truthy</code>/<code>be_falsey</code>に書き換えれば良いでしょう。</p>
+
+<p>一方、そんな挙動だったなんて知らなかった、これを機に厳格にテストしたい、という場合は<code>be true</code>/<code>be false</code>を利用することが推奨されています。これらは新しい記法ではなく、従来からある<code>be</code>マッチャと<code>true</code>/<code>false</code>リテラルの組み合わせです。<code>be</code>は<code>equal</code>マッチャのaliasであり、オブジェクトの同一性がテストされます。</p>
+
+<h4 id="rspec-mocksへの一部のexpect記法の追加"><code>rspec-mocks</code>への一部のexpect記法の追加</h4>
+
+<p>should記法の、ハッシュを引数に取った<code>stub</code>と、<code>stub_chain</code>に対応するexpect記法が追加されます。</p>
+<pre><code class="highlight ruby"><span class="c1"># should記法</span>
+<span class="n">obj</span><span class="p">.</span><span class="nf">stub</span><span class="p">(</span><span class="ss">:foo</span> <span class="o">=&gt;</span> <span class="mi">1</span><span class="p">,</span> <span class="ss">:bar</span> <span class="o">=&gt;</span> <span class="mi">2</span><span class="p">)</span>
+<span class="n">obj</span><span class="p">.</span><span class="nf">stub_chain</span><span class="p">(</span><span class="ss">:foo</span><span class="p">,</span> <span class="ss">:bar</span><span class="p">,</span> <span class="ss">:baz</span><span class="p">)</span>
+
+<span class="c1"># expect記法</span>
+<span class="n">allow</span><span class="p">(</span><span class="n">obj</span><span class="p">).</span><span class="nf">to</span> <span class="n">receive_messages</span><span class="p">(</span><span class="ss">:foo</span> <span class="o">=&gt;</span> <span class="mi">1</span><span class="p">,</span> <span class="ss">:bar</span> <span class="o">=&gt;</span> <span class="mi">2</span><span class="p">)</span> <span class="c1"># 3.0.0.beta1から利用可能</span>
+<span class="n">allow</span><span class="p">(</span><span class="n">obj</span><span class="p">).</span><span class="nf">to</span> <span class="n">receive_message_chain</span><span class="p">(</span><span class="ss">:foo</span><span class="p">,</span> <span class="ss">:bar</span><span class="p">,</span> <span class="ss">:baz</span><span class="p">)</span> <span class="c1"># 現時点で未リリース、おそらく3.0.0.beta2から利用可能</span>
+</code></pre>
+
+<p>2012年7月に<a href="http://myronmars.to/n/dev-blog/2012/06/rspecs-new-expectation-syntax">RSpec 2.11で導入されたexpect記法</a>ですが、この時点では<code>rspec-expectations</code>のみへの導入でした。その1年後の2013年7月に<a href="http://teaisaweso.me/blog/2013/05/27/rspecs-new-message-expectation-syntax/">RSpec 2.14で<code>rspec-mocks</code>にもexpect記法が導入</a>され、<code>expect(obj).to receive(:message)</code>や<code>allow(obj).to receive(:message)</code>といった記述が可能になりました。この記法は2.11での導入時ほど話題にならなかったため、知らない方も割といるのではないでしょうか。</p>
+
+<p>しかしRSpec 2.14時点での<code>rspec-mocks</code>のexpect記法は、should記法すべてに対して代替手段が用意されている訳ではありませんでした。これは単なる実装漏れではなく、いわゆるcode smellがするため一旦導入を見送っていたなどの理由があったのですが、最終的には前述の2つについては代替記法が導入されることになります。ちなみに<code>unstub</code>は未だexpect記法は存在せず、RSpecコアチームの見解を見る限り、おそらく今後も導入されることは無いものと思われます。</p>
+
+<h4 id="ワンライナーshouldのexpect記法">ワンライナー<code>should</code>のexpect記法</h4>
+
+<p>ワンライナー<code>should</code>のexpect記法として<code>is_expected.to</code>が追加されます。</p>
+<pre><code class="highlight ruby"><span class="n">it</span> <span class="p">{</span> <span class="n">should</span> <span class="n">be_empty</span> <span class="p">}</span>
+<span class="n">it</span> <span class="p">{</span> <span class="n">is_expected</span><span class="p">.</span><span class="nf">to</span> <span class="n">be_empty</span> <span class="p">}</span> <span class="c1"># 現時点で未リリース、おそらく2.99.0.beta2から利用可能</span>
+</code></pre>
+
+<p>expect記法が導入された経緯として、既存のshould記法は<code>should</code>/<code>should_receive</code>/<code>stub</code>などのメソッドを<code>BasicObject</code>クラスにモンキーパッチで追加するため、delegate/proxyなオブジェクトで正常にテストができないという問題がありました。しかしワンライナー<code>should</code>は<code>BasicObject</code>クラスにモンキーパッチされたものではなく、その実体は<code>RSpec::Core::ExampleGroup#should</code>であり、前述の問題は発生しません。そのためワンライナー<code>should</code>はこれまでexpect記法が用意されておらず、<code>RSpec.configure</code>で<a href="https://www.relishapp.com/rspec/rspec-expectations/v/3-0/docs/syntax-configuration#disable-should-syntax">should記法が無効化</a>されていても利用することができました。</p>
+
+<p>しかしコードの見た目上expect記法と混在させた時に一貫性がなかったり、「ワンライナー<code>should</code>のexpect記法は？」といったユーザからの声が多かったため、<code>is_expected.to</code>が代替記法として追加されます。</p>
+
+<p>ちなみにモンキーパッチ<code>should</code>はRSpec 3.0からdeprecated扱いになりますが（ただし<a href="https://www.relishapp.com/rspec/rspec-expectations/v/3-0/docs/syntax-configuration#disable-expect-syntax">明示的にshould記法を利用する宣言</a>をすればdeprecation warningは表示されない）、ワンライナー<code>should</code>は3.0でも現役なため、<code>is_expected.to</code>が冗長だと感じる場合はワンライナー<code>should</code>を使い続けても問題ありません。</p>
+
+<h2 id="rspec-3へのアップグレード">RSpec 3へのアップグレード</h2>
+
+<p>ここでは既存のプロジェクトをRSpec 3.0.0.beta1にアップグレードする際の手順を解説します。</p>
+
+<p>ベータ版ではありますが、今のところ大きなバグもなく、deprecatedな機能が一掃されたバージョンなので、今のうちにアップグレードしておくと正式リリースの際にスムーズな移行ができます。アグレッシブな方はこの機会にアップグレードしてしまいましょう。</p>
+
+<h3 id="rspec-2.99">RSpec 2.99</h3>
+
+<p>RSpec 2.99は、バージョン2系との後方互換性を保ちつつ、3.0で非互換になる全ての機能に対してwarningを表示する、アップグレードの通過点となるバージョンです。</p>
+
+<p>既存のspecをまずバージョン2.99で実行することで、そのspecを3.0に対応させるにあたって必要な変更を知ることができます。3.0のchangelog全ての項目に目を通して、どれが自分のプロジェクトに影響を与えるかをいちいち調べる必要はありません。</p>
+
+<h3 id="transpec">Transpec</h3>
+
+<p>しかし何を変更すれば良いかはわかっても、その書き換え作業は自分で行う必要があります。正直言ってこれはかなり面倒くさいし、世界中のRSpecユーザがそれぞれ正規表現のワンライナーなどでちまちま置換作業をするのは非合理的です。</p>
+
+<p>という訳で、既存のspecを最新の記法に書き換えるツール、<a href="http://yujinakayama.me/transpec/">Transpec</a>を作りました。Transpecを既存のプロジェクトに対して実行すると、静的解析と動的解析によってspecファイルを最新の記法に書き換えます。現時点で、RSpec 2.0から3.0にかけてdeprecatedになった大半の記法の変換をサポートしています。詳細は<a href="https://github.com/yujinakayama/transpec#supported-conversions">README - Supported Conversions</a>を参照して下さい。</p>
+
+<p>プロジェクトによってはTranspecによる変換だけでRSpec 3対応が完了する場合もあるでしょうし、追加で手作業が必要な場合もごくわずかな書き換えで済むかと思います。また、Transpecは<a href="https://github.com/rspec/rspec-expectations/commit/f2121650e10464b8cb004e66d03bc77bc7746c6b">RSpecプロジェクトそのものでも利用されて</a>います。</p>
+
+<h3 id="手順">手順</h3>
+
+<p>RSpec公式のアップグレードガイドがあるので、この手順に従います。</p>
+
+<ul>
+<li><a href="https://relishapp.com/rspec/docs/upgrade">https://relishapp.com/rspec/docs/upgrade</a></li>
+</ul>
+
+<ol>
+<li>現状のままspecを実行し、all greenなことを確認します。</li>
+<li><code>Gemfile</code>で<code>rspec</code>のバージョンに<code>~&gt; 2.99</code>を指定し、<code>bundle update rspec</code>を実行します。</li>
+<li>再度specを実行し、all greenなことを確認します。RSpecは<a href="http://semver.org/">Semantic Versioning</a>準拠で開発されているため、RSpec 2.0時代のspecであっても2.99で正常に動作するはずです。動作しないのであれば、それはRSpecのバグです。必要であればこの時点でコミットをします。</li>
+<li>spec実行後、deprecation warningが表示されるので内容を確認します。これらが3.0対応にあたって変更が必要な点になります。</li>
+<li><code>gem install transpec</code>でTranspecをインストールします。これは日常的に使うツールではないので、通常はプロジェクトの<code>Gemfile</code>に追加する必要はありません。</li>
+<li>プロジェクトのルートディレクトリで<code>transpec</code>を実行します。Transpecはデフォルトで可能な限り最新の推奨された記法に変換しますが、必要であればTranspecの<a href="https://github.com/yujinakayama/transpec">README</a>を参照し、コマンドラインオプションで変換の挙動をカスタマイズして下さい。例えば<code>have(n).items</code>や<code>its</code>はRSpec 3.0で削除されますが、外部gem化された<a href="https://github.com/rspec/rspec-collection_matchers">rspec-collection_matchers</a>や<a href="https://github.com/rspec/rspec-its">rspec-its</a>を利用することで3.0以降も使い続けることができるため、もしその方針であればこれらの変換を<code>--keep have_items,its</code>オプションで無効化できます。</li>
+<li>Transpecによる変換が完了したら、一旦コミットします（Transpecは<a href="https://github.com/yujinakayama/transpec#basic-usage">自動的にコミットメッセージを生成する</a>のでそれを利用すると良いでしょう）。</li>
+<li>再度specを実行します。まだdeprecation warningが表示されるようであれば、手作業で対処します。all greenかつdeprecation warningがなくなったらコミットします。</li>
+<li><code>Gemfile</code>で、<code>rspec</code>のバージョンに<code>~&gt; 3.0</code>を指定し、<code>bundle update rspec</code>します。</li>
+<li>RSpec 3.0でspecを実行します。all greenなはずですが、もし失敗するのであればそれはRSpecのバグです。問題なければコミットします。</li>
+<li>RSpec 3.0から新たにdeprecated扱いになる機能もあり、場合によってはwarningが表示されるかもしれません。また、2.99の時点では代替となる記法が存在せず、3.0になってからでないと変換ができないものもあります（前述の<code>receive_messages</code>など）。その場合は再度<code>transpec</code>を実行するとそれらを変換できます。</li>
+<li>再度specを実行します。問題なければコミットします。</li>
+<li>完了！</li>
+</ol>
+
+<h2 id="おわりに">おわりに</h2>
+
+<p>本記事で解説したRSpec 3での変更は確定した訳ではなく、今後も新たな変更がある可能性があります。ちなみにGitHubのRSpecのマイルストーンを見る限り、3.0.0.beta2は2013年内のリリースを目指している模様です。</p>
+</div></article></main><footer><p class="copyright">&copy; 2013–2014 Yuji Nakayama</p></footer><script src="../../javascripts/all-da39a3ee.js" type="text/javascript"></script><script type="text/javascript">(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+ga('create', 'UA-42195703-1', 'yujinakayama.me');
+ga('send', 'pageview');</script></body></html>

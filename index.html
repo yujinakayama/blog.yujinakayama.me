@@ -1,0 +1,778 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><meta content="IE=edge" http-equiv="X-UA-Compatible" /><meta content="width=device-width, initial-scale=1.0" name="viewport" /><title>blog.yujinakayama.me</title><link rel="alternate" type="application/atom+xml" title="Atom Feed" href="/feed.xml" /><link href="stylesheets/all-d4d309f2.css" rel="stylesheet" type="text/css" /></head><body><header><h1><a href="/">blog.yujinakayama.me</a></h1><nav class="social"><ul><li><a class="twitter" href="http://twitter.com/nkym37" target="_blank"><span class="text">Twitter</span></a></li><li><a class="github" href="https://github.com/yujinakayama" target="_blank"><span class="text">GitHub</span></a></li></ul></nav></header><main><article><h2 class="title"><a href="/posts/transpec-first/">Transpec 開発記 – 前編</a></h2><p class="date">Aug 28th, 2014</p><div class="body"><p><a href="http://yujinakayama.me/transpec/">Transpec</a>という、RSpecの古い記法で書かれたspecを、最新の記法に自動で書き換えるツールを作った。</p>
+
+<p>最初のバージョン0.0.1をリリースしたのが2013年8月9日なので、すでに一年前になる。
+先日のRSpec 3の正式リリースからもしばらく経って一段落したところだし、
+この辺で一旦振り返って、
+開発中のその時々で何を考えていたのか、忘れてしまう前に長々と残しておくことにする。</p>
+
+<h2 id="きっかけ">きっかけ</h2>
+
+<p>そもそもTranspecを作り始めたきっかけは、
+should記法を使っていた自分のプロジェクトのspecをexpect記法に書き換えようとしたところから。
+これは2013年の7月下旬の話で、まだRSpec 2.99/3.0のベータ版も出ていない頃。</p>
+
+<p>正直なところexpect記法が導入された当初は違和感があったし、
+更には<a href="http://myronmars.to/n/dev-blog/2013/07/the-plan-for-rspec-3">The Plan for RSpec 3</a>も発表され、
+「このままRSpecを使い続けるべきなのか？」と言う気持ちもあった。
+しかし実際他のテストフレームワークを触ってみたり、変更に至った経緯を詳しく追っていくうちに、
+なんだかんだでやっぱりRSpecかなという結論に。
+例え乗り換えるにしても、既存のRSpecを使ったプロジェクトを今すぐ放り投げられる訳でもない。</p>
+
+<p>また、別ブロジェクトでexpect記法を使っているうちにそっちに慣れてきたこともあって、
+自分のプロジェクトも全部書き換えることにした。</p>
+
+<p>流石にすべて手作業はしんどいので、
+まずは安直に正規表現のワンライナーで
+<code>find spec -name &#39;*.rb&#39; | xargs perl -i -pe &#39;s/(\w+)\.should/.../g&#39;</code><sup id="fnref1"><a href="#fn1" rel="footnote">1</a></sup>
+とかやってちまちま変換しようと試みる。
+が、実際やってみると誤変換や変換残りが結構あるし、
+<a href="https://github.com/yujinakayama/transpec#operator-matchers">演算子マッチャ</a>がからんできたりもするので、
+ワンライナーでスムーズにやれるレベルではないと認識。</p>
+
+<p>そもそも正規表現なんて緩い仕組みで複雑なソースコードの書き換えをしようというのが間違っている。
+単なる文字列処理ではなく、
+ちゃんとRubyコードの意味を解釈して変換したいコードを狙い撃つ方がスマートだし、
+正規表現と延々と格闘して消耗するより早い。
+幸い<a href="https://github.com/bbatsov/rubocop">RuboCop</a>プロジェクトでの経験から、
+ソースコードのパースによって得られるAST（Abstract Syntax Tree）の扱いと、
+ソース書き換えのノウハウはあったので、
+静的解析ベースの変換ツールを作ってみることにした。
+この時点では自分用のツールで、汎用化するつもりはあまりなかった。</p>
+
+<h2 id="プロトタイプ">プロトタイプ</h2>
+
+<p>思い立ったが吉日、まずはプロトタイプを作った。</p>
+
+<p>とりあえずは<code>obj.should</code>から<code>expect(obj).to</code>への置き換えと、それに伴う演算子マッチャの変換のみで、
+コードはせいぜい200行程度。
+ちなみにこの時のプロジェクト名はExpectizeで、
+その名残が未だに<a href="https://github.com/yujinakayama/transpec/blob/v2.3.7/lib/transpec/syntax/should.rb#L26">一つのメソッド</a>として残っている。</p>
+
+<p>実際にプロトタイプを実行してみると、自分が想像していた以上にうまく変換できていて予想外に感動した。
+何より一気に自動変換された後のdiffを眺めていると、なんかこう、気持ち良いというか、
+まるで人間が書き換えたかのような魔法っぽさがすごい面白かった。
+「お、おお〜、おほ、おほほほほ」とか言いながらニヤニヤしていたと思う。
+これは面白いぞ。単なる退屈な作業の省力化という、マイナスをゼロへ近づけるだけのものでなく、
+本来ネガティブな体験をポジティブなものに変えられる可能性があるというのはデカい。</p>
+
+<h2 id="モチベーション">モチベーション</h2>
+
+<p>というプロトタイプの感触から、汎用化してリリースすることを決めた。
+Transpecの開発に対するモチベーションは他にも色々あったけど、
+常にコアとなっていたのはこの「いかにポジティブな体験にするか」という部分だったように思う。</p>
+
+<p>どうせやるならshould/expect記法の変換だけでなく、RSpec 3における各種変更もサポートしちゃおう、
+ということでRSpec 3へのアップグレード補助ツールという位置付けを狙うことにした。</p>
+
+<p>また、決定打となったのはプロトタイプの感触ではあったものの、
+他にもいくつかのモチベーションがあった。</p>
+
+<h3 id="コミュニティへの還元">コミュニティへの還元</h3>
+
+<p>自分が困っている問題は、他にも困っている人がいるはず。
+特にRSpec 3が正式リリースされたら、
+アップグレード作業の面倒くささにコミュニティから不満が噴出するだろうと思った。</p>
+
+<p>最初のきっかけの時点から、RSpecのコードを読んだりリポジトリをウォッチしたりして、
+RSpecそのものやRSpec 3での変更に関する知見がかなり得られてきていた。
+せっかくだから「RSpec 3へのアップグレードコンプリートガイド」みたいな記事書こうかな、
+と考えたりもした。</p>
+
+<p>しかし、そのノウハウの大半はアップグレード時の一過性のものだし、
+その知識も地道なアップグレード作業も、即座に価値を産み出すものではない。
+しかも、様々なケースを網羅してどう対処すべきかを緻密に自然言語で書き、
+読者がそれを読み解いて忠実に実行する、
+それって人間の仕事じゃないでしょ。
+ということで、それらのノウハウは可能な限り実行可能なコードに落とし込み、
+誰もが簡単に実行できるようにすることにした。</p>
+
+<h3 id="rubyにおける実用レベルのコード変換の実現">Rubyにおける実用レベルのコード変換の実現</h3>
+
+<p>単なる proof of concept 的な「なんか面白いもの作ってみた」程度のものではなく、
+現実世界に存在する無数のプロジェクトでの利用に耐えうるクオリティのものを実現できるか、
+試してみたかった。</p>
+
+<p>言語やフレームワークの変更に対して、ソースコードの自動書き換えによって対応した前例としては、
+自分が経験した中ではXcodeによるObjective-CのMRCからARCへの変換や、
+Modern Objective-Cへの変換がある。
+この変換の精度はそこまで完璧ではなかったけれど、
+まあ必要な作業の8割くらいはやってくれたかな？くらいな印象だった、気がする。</p>
+
+<p>他には、使ったことはないけれど、Python 2のコードをPython 3対応に変換する<a href="https://docs.python.org/2/library/2to3.html"><code>2to3</code></a>というツールもあるらしい。</p>
+
+<p>Rubyの世界ではそういう大きな前例は聞いたことがなかったし、
+動的型付け言語であるという時点で（静的解析で得られる情報が少ないため）
+不利なことは否めなかったけど、
+実現できるか？できたとしてコミュニティがどう受け止めるか？
+みたいな好奇心があった。</p>
+
+<p>とは言っても、Rubyでは全然無理ですなんてことはまず有り得なくて、
+少なくとも7〜8割くらいのケースはカバーできるだろうとは予想していた。
+ただそれ以上の精度に関しては、言語の変更なのかフレームワークの変更なのか、
+また、言語が静的型付けなのか動的型付けなのか、という辺りで大分変わると思うので未知数だった。</p>
+
+<h2 id="技術的課題">技術的課題</h2>
+
+<p>さて、モチベーションが湧いて夢が広がりんぐな構想を巡らせていると、
+色々な課題も浮かび上がってくる。</p>
+
+<p>人間の仕事ではないので機械にやらせようとは言ったものの、
+ソースコードを正確に書き換えるという行為は、
+機械がやるにはちょっと面倒くさくて、人間がやるには単調過ぎる、
+というような微妙な領域にあると思う。</p>
+
+<p>ソースの変換処理というのは、大きく以下の三つののフェーズに分けることができて、
+それぞれに問題が見えてきた。</p>
+
+<ul>
+<li>変換対象の検出</li>
+<li>どんな形に変換するかの判断</li>
+<li>書き換え処理</li>
+</ul>
+
+<h3 id="コードスタイルの尊重">コードスタイルの尊重</h3>
+
+<p>これは書き換え処理における問題。</p>
+
+<p>今回Transpecが書き換えるソースコードはspecファイルであり、
+変換後も人間がメンテナンスしていくものである。
+そんなソースに対して、
+変換前のコードスタイルを完全に無視して違和感バリバリのコードを生成するような、
+おざなりな仕事をするツールは自分がユーザーだったら使いたくない。</p>
+
+<p>という訳で、なるべく既存のコードスタイルを活かした変換をしたい。
+もちろん、不正なコードを出力しないという大前提と共に。
+さてどうすんのという話だけど、これについては銀の弾丸はない。</p>
+
+<p>Transpecが行うのは、RSpecの等価なAPI間の変換である。
+その等価なAPI — 例えば<code>obj.should</code>と<code>expect(obj).to</code> — というのは、
+RSpecという単なる1フレームワークがRubyレイヤーの上に作り上げたものに過ぎず、
+Rubyのレベルで見ると変換前後でのプログラムの意味は等価ではなくなる。
+プログラムの意味が変わるということは、つまりASTの構造も変わる。</p>
+
+<p>そもそもASTって何なのという話だけど、<a href="http://ja.wikipedia.org/wiki/抽象構文木">Wikipedia</a>によると、</p>
+
+<blockquote>
+<p>抽象構文木（abstract syntax tree、AST）とは、通常の構文木（具象構文木、あるいはparse treeとも言う）から、言語の意味に関係ない情報を取り除き、意味に関係ある情報のみを取り出した（抽象した）木構造のデータ構造である。</p>
+</blockquote>
+
+<p>らしい。
+これは要するに、ASTはプログラムの意味を解析するのに便利なデータ構造であり、
+その上でノイズにしかならない、ソースコード上での見栄えに関する情報を取り除いたもの、ということ。</p>
+
+<p>例えば「<code>if</code>文の中で<code>puts</code>メソッドで文字列<code>&quot;foo&quot;</code>を出力している処理」を検出したいという要求があった場合、
+こういうコードも、</p>
+<pre><code class="highlight ruby"><span class="k">if</span> <span class="n">some_condition</span>
+  <span class="nb">puts</span> <span class="s1">'foo'</span>
+<span class="k">end</span>
+</code></pre>
+
+<p>こんなコードも、</p>
+<pre><code class="highlight ruby"><span class="nb">puts</span><span class="p">(</span><span class="s2">"foo"</span><span class="p">)</span> <span class="k">if</span> <span class="n">some_condition</span>
+</code></pre>
+
+<p>ソースコード上での形は違うが、プログラムとしての意味は全く同じなので、これらを等価に扱える必要がある。</p>
+
+<p>もしソースコードを文字列としてそのまま解析するのであれば、
+そんな処理を実装するのは気が遠くなる話だけど、
+そんな気が遠くなることを代わりにやってくれるパーサーという有り難い存在がある。
+パーサーは入力としてソースコードを受け取り、出力としてASTなどのデータを吐き出す。
+上記の2つの例をパースして得られるASTは、なんと両方とも以下の構造になる。
+これは<a href="https://github.com/whitequark/parser">Parser</a>によって生成されたASTをS式で表現したもので、
+実際には木構造になっている。</p>
+<pre><code class="highlight plaintext">(if
+  (send nil :some_condition)
+  (send nil :puts
+    (str "foo")) nil)
+</code></pre>
+
+<p>つまり、ASTだけを見ればソースコード上の細かな違いを気にせず、意味の解析に集中できる。
+超便利。</p>
+
+<p>さて、話をソースの書き換えに戻すと、プログラムの意味を変えるソース変換の一つの方法として、
+ソースを文字列として操作するのではなく、
+元のソースから得られたASTの構造を組み替え（AST変換）、
+その組み替えられたASTから意味的に等価になるソースを自動生成するという方法がある。</p>
+
+<p><img alt="AST Transformation" src="ast_transformation-c94d4cfa.svg" /></p>
+
+<p>この方法を使えば、ASTだけを見れば良いので変換のロジックはシンプルになるし、
+少なくともRubyレベルで不正なソースコードを吐き出すことはなくなる。</p>
+
+<p>しかし前述の通り、ASTはソースコード上の見栄えに関する情報が失われているため、
+ASTから生成されたソースには、元のソースのスタイルが全く反映されない<sup id="fnref2"><a href="#fn2" rel="footnote">2</a></sup>。</p>
+
+<p>ということでここまで長々と書いたけど、Transpecではこの方法は使っていない。
+代わりに、ParserのASTは元のソースへのロケーションマップ情報を持っているので、
+それを参照しながら地道に文字列操作をすることにした。
+つまりロケーションマップという補助的な情報はあるけれど、
+結局は原始的な文字列操作なので、
+変換対象の周囲のコードに配慮をしないと不正なコードを出力してしまう可能性はある。</p>
+
+<p>世の中には、Rubyの構文の自由度の高さを活かした変態的なコードを書く人もいるけど、
+そんな未知のコードであろうが、Rubyとして正しく、RSpecのAPIを正しく使っている限り、
+なるべく正常に変換できるようにしたい。
+これについては結局、テストケースを充実させながら地道に実装していくしかないという結論に。</p>
+
+<h3 id="astだけでは情報が足りない">ASTだけでは情報が足りない</h3>
+
+<p>これは、変換対象の検出と、どんな形に変換するかの判断に関わる問題。</p>
+
+<h4 id="インターフェースが似ている同名のメソッドを見分けられない">インターフェースが似ている同名のメソッドを見分けられない</h4>
+
+<p>例えば、今回Transpecが変換対象とする、<code>mock</code>と<code>stub</code>というRSpec 3で廃止されたメソッドがある。
+これは<code>double</code>の単純なaliasであり、
+書き換え処理としては<code>mock</code>というメソッド名を<code>double</code>に置換するだけで良い。</p>
+
+<p>が、それはその<code>mock</code>が本当にRSpecによって定義された<code>mock</code>であればの話。</p>
+
+<p>例えばこんな<code>mock</code>呼び出しがあったとき、</p>
+<pre><code class="highlight ruby">  <span class="n">it</span> <span class="s1">'is an object'</span> <span class="k">do</span>
+    <span class="n">book</span> <span class="o">=</span> <span class="n">mock</span><span class="p">(</span><span class="s1">'book'</span><span class="p">)</span>
+    <span class="n">book</span><span class="p">.</span><span class="nf">should</span> <span class="n">be_an</span><span class="p">(</span><span class="no">Object</span><span class="p">)</span>
+  <span class="k">end</span>
+</code></pre>
+
+<p>これはRSpecの<code>mock</code>だろうか？<code>double</code>に変換して良いだろうか？
+それはASTを見てもわからない。</p>
+
+<p>上記のソースコードから得られるASTの中で、
+コード片<code>mock(&#39;book&#39;)</code>に対応するノードは以下の形になる。</p>
+<pre><code class="highlight plaintext">(send nil :mock
+  (str "book"))
+</code></pre>
+
+<p>Rubyは動的型付け言語なので、静的に得られたデータであるASTに型情報はない<sup id="fnref3"><a href="#fn3" rel="footnote">3</a></sup>。
+このASTからわかるのは、
+それがメソッド呼び出しであり、レシーバーは省略されていて、メソッド名は<code>mock</code>で、
+文字列リテラル<code>&quot;book&quot;</code>を引数として渡している、ということだけ。</p>
+
+<p>この呼び出し方であれば、
+<a href="http://rubydoc.info/gems/mocha/Mocha/API#mock-instance_method">Mochaの<code>mock</code></a>であってもおかしくないし、
+<a href="https://github.com/rr/rr/tree/v1.1.2#mocks">RRの<code>mock</code></a>の可能性もある<sup id="fnref4"><a href="#fn4" rel="footnote">4</a></sup>。
+もしくはユーザーが自分で定義したヘルパーメソッドかもしれない。
+当然それらを間違って<code>double</code>に変換してしまうと、specが壊れる。</p>
+
+<p>結局のところ、ASTのみを頼りに変換対象のメソッドを探す場合、使える情報としては</p>
+
+<ul>
+<li>メソッド名のユニークさ</li>
+<li>レシーバーを取るかどうか</li>
+<li>引数の数</li>
+</ul>
+
+<p>程度の、割とゆるい情報しかないという問題がある。</p>
+
+<p>流石に<code>should</code>という名前のメソッドが自前で定義されている、というケースはあまりなさそうだけど、
+上記の<code>mock</code>とか、<code>stub</code>なんかは結構他のフレームワークとかぶっていたりする。
+また<code>example</code>というメソッドは、RSpec内だけでも2つ存在している上に、
+普遍的な名前過ぎてユーザーのヘルパーメソッドや<code>let</code>によって不意にオーバーライドされてしまっていることがある。</p>
+
+<h4 id="どんな形に変換するべきか判断できない">どんな形に変換するべきか判断できない</h4>
+
+<p>もう一つの例として、RSpec 3で廃止された<code>have(n).items</code>マッチャというものがある。
+これはテスト対象オブジェクトの性質によってその挙動を変える、
+やり過ぎ感あふれるマッチャだったりする。</p>
+
+<p>以下、その挙動のバリエーション。</p>
+<pre><code class="highlight ruby"><span class="k">class</span> <span class="nc">NumberSet</span>
+  <span class="k">def</span> <span class="nf">initialize</span><span class="p">(</span><span class="o">*</span><span class="n">numbers</span><span class="p">)</span>
+    <span class="vi">@numbers</span> <span class="o">=</span> <span class="n">numbers</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">count</span>
+    <span class="vi">@numbers</span><span class="p">.</span><span class="nf">size</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">odd_numbers</span>
+    <span class="vi">@numbers</span><span class="p">.</span><span class="nf">select</span><span class="p">(</span><span class="o">&amp;</span><span class="ss">:odd?</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">even_numbers</span>
+    <span class="vi">@numbers</span><span class="p">.</span><span class="nf">select</span><span class="p">(</span><span class="o">&amp;</span><span class="ss">:even?</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">numbers_more_than</span><span class="p">(</span><span class="n">threshold</span><span class="p">)</span>
+    <span class="vi">@numbers</span><span class="p">.</span><span class="nf">select</span> <span class="p">{</span> <span class="o">|</span><span class="n">number</span><span class="o">|</span> <span class="n">number</span> <span class="o">&gt;</span> <span class="n">threshold</span> <span class="p">}</span>
+  <span class="k">end</span>
+
+  <span class="kp">private</span>
+
+  <span class="k">def</span> <span class="nf">negative_numbers</span>
+    <span class="vi">@numbers</span><span class="p">.</span><span class="nf">select</span> <span class="p">{</span> <span class="o">|</span><span class="n">number</span><span class="o">|</span> <span class="n">number</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="p">}</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+
+<span class="n">describe</span> <span class="s1">'have(n).items'</span> <span class="k">do</span>
+  <span class="n">let</span><span class="p">(</span><span class="ss">:set</span><span class="p">)</span> <span class="p">{</span> <span class="no">NumberSet</span><span class="p">.</span><span class="nf">new</span><span class="p">(</span><span class="o">-</span><span class="mi">7</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span> <span class="p">}</span>
+
+  <span class="n">it</span> <span class="s1">'is complicated'</span> <span class="k">do</span>
+    <span class="c1"># テスト対象が、末尾のitems部と同名のメソッドに応答せず、</span>
+    <span class="c1"># size, length, countいずれかのメソッドに応答する場合</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">5</span><span class="p">).</span><span class="nf">items</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">5</span><span class="p">).</span><span class="nf">numbers</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">5</span><span class="p">).</span><span class="nf">qawsedrftgyhujikolp</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">.</span><span class="nf">count</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span> <span class="c1"># 等価</span>
+
+    <span class="c1"># テスト対象がodd_numbersメソッドに応答する場合</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">4</span><span class="p">).</span><span class="nf">odd_numbers</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">.</span><span class="nf">odd_numbers</span><span class="p">.</span><span class="nf">size</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span> <span class="c1"># 等価</span>
+
+    <span class="c1"># ActiveSupport::Inflectorがロードされていない場合</span>
+    <span class="n">expect</span> <span class="p">{</span>
+      <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">1</span><span class="p">).</span><span class="nf">even_number</span> <span class="c1"># Fail</span>
+    <span class="p">}.</span><span class="nf">to</span> <span class="n">raise_error</span><span class="p">(</span><span class="no">RSpec</span><span class="o">::</span><span class="no">Expectations</span><span class="o">::</span><span class="no">ExpectationNotMetError</span><span class="p">)</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">1</span><span class="p">).</span><span class="nf">even_numbers</span>  <span class="c1"># Pass</span>
+
+    <span class="c1"># ActiveSupport::Inflectorがロードされている場合</span>
+    <span class="nb">require</span> <span class="s1">'active_support/inflector'</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">1</span><span class="p">).</span><span class="nf">even_number</span>   <span class="c1"># Pass</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">1</span><span class="p">).</span><span class="nf">even_numbers</span>  <span class="c1"># Pass</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">.</span><span class="nf">even_numbers</span><span class="p">.</span><span class="nf">size</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="c1"># 等価</span>
+
+    <span class="c1"># 引数が渡された場合</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">2</span><span class="p">).</span><span class="nf">numbers_more_than</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">.</span><span class="nf">numbers_more_than</span><span class="p">(</span><span class="mi">1</span><span class="p">).</span><span class="nf">size</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span> <span class="c1"># 等価</span>
+
+    <span class="c1"># テスト対象がsize, length, countいずれにも応答せず、</span>
+    <span class="c1"># プライベートなnegative_numbersメソッドに応答する場合</span>
+    <span class="k">class</span> <span class="o">&lt;&lt;</span> <span class="n">set</span>
+      <span class="n">undef_method</span><span class="p">(</span><span class="ss">:count</span><span class="p">)</span>
+    <span class="k">end</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">2</span><span class="p">).</span><span class="nf">negative_numbers</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">.</span><span class="nf">send</span><span class="p">(</span><span class="ss">:negative_numbers</span><span class="p">).</span><span class="nf">size</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span> <span class="c1"># 等価</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre>
+
+<p>これは実際廃止されてもしょうがないよね、と思ってしまうくらいにやり過ぎな挙動だけど、
+皮肉なことにTranspecはそういうものを一掃するためのツールなので、
+これに対処する必要がある。</p>
+
+<p><code>have(n).items</code>マッチャの変換後の形を決めるには、ASTからは得られない以下の情報が必要になる。</p>
+
+<ul>
+<li>テスト対象が<code>size</code>, <code>length</code>, <code>count</code>のいずれかに応答するか</li>
+<li>テスト対象が<code>have(n).items</code>の<code>items</code>部のメソッドに応答するか
+
+<ul>
+<li>応答するのであれば、それはプライベートメソッドか</li>
+</ul></li>
+<li><code>ActiveSupport::Inflector</code>がロードされているか</li>
+</ul>
+
+<h4 id="で、どうする">で、どうする</h4>
+
+<p>この「ASTだけでは情報が足りない」問題は、
+どう考えても単純な静的解析では手に負えない問題で、
+とりあえず初期リリースの段階では考えないことにした。
+衝動ドリブンで開発している時にあまり遠くの問題を見過ぎると、
+失速して完成せずに終わってしまう恐れがある。</p>
+
+<p>一応このとき、
+「最悪、他にスマートな方法がなければ強引にアレをこうすればいけるかも」という案は考えていて、
+最終的にはその方法を使うことになる。</p>
+
+<h2 id="リリースに向けて">リリースに向けて</h2>
+
+<p>といったようないくつかの問題を考えたところで、
+平均的な使い方として1プロジェクトに対して1回使ったら終わりのツールに、
+そこまでの労力をかける意義はあるのか？という疑問もあったのだけど、
+RSpecのシェアを考えれば自分一人がそのくらいの労力をかけるのはアリだと思った。
+もっとマイナーなフレームワークだったらやらなかったかもしれない。</p>
+
+<p><em>つづく</em></p>
+
+<div class="footnotes">
+<hr>
+<ol>
+
+<li id="fn1">
+<p><code>ruby</code>のコマンドラインオプションをいつまで経っても覚えられない&nbsp;<a href="#fnref1" rev="footnote">&#8617;</a></p>
+</li>
+
+<li id="fn2">
+<p>逆に、変換後のソースの見栄えを気にする必要のない、例えば一時的なデバッグコードの挿入などの場合は、AST変換のメリットをフルに享受できる。&nbsp;<a href="#fnref2" rev="footnote">&#8617;</a></p>
+</li>
+
+<li id="fn3">
+<p>厳密には、この場合に欲しい情報は「誰によってその<code>mock</code>メソッドが定義されたか」であり、レシーバーや返り値のクラス名ではないのだけど。&nbsp;<a href="#fnref3" rev="footnote">&#8617;</a></p>
+</li>
+
+<li id="fn4">
+<p>どちらもrspec-mocksの代替として、RSpecに<a href="https://www.relishapp.com/rspec/rspec-core/v/3-0/docs/mock-framework-integration">組み込んで使う</a>ことができる。&nbsp;<a href="#fnref4" rev="footnote">&#8617;</a></p>
+</li>
+
+</ol>
+</div>
+</div></article><article><h2 class="title"><a href="/posts/testing-uiview-drawing-with-fbsnapshottestcase/">FBSnapshotTestCaseでUIViewの描画をテストする</a></h2><p class="date">Feb 14th, 2014</p><div class="body"><p>先日、iOS 7のMusic.app内の再生状態インジケータのクローンなビュー、<a href="https://github.com/yujinakayama/NAKPlaybackIndicatorView"><code>NAKPlaybackIndicatorView</code></a>を作りました。</p>
+
+<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/music_app-5b27249f.png" width="320" height="150" alt="Music.app" /></p>
+
+<p>このプロジェクトでは、ビューが期待通りに描画できているかのテストに<code>FBSnapshotTestCase</code>というものを使っています。</p>
+
+<h2 id="fbsnapshottestcaseとは">FBSnapshotTestCaseとは</h2>
+
+<p><a href="https://github.com/facebook/ios-snapshot-test-case"><code>FBSnapshotTestCase</code></a>は、
+Facebookによる、ビューの“snapshot test”ライブラリです。
+“snapshot test”とは、テスト対象の<code>UIView</code>または<code>CALayer</code>に表示されたコンテンツのスナップショットを撮り、
+事前に用意しておいた“reference image”（PNG画像）と同一かどうかをピクセルレベルでチェックすることで、
+将来の予期しない表示崩れを検出するものです。</p>
+
+<p><code>FBSnapshotTestCase</code>は<code>XCTestCase</code>のサブクラスであり、snapshot test用のヘルパーメソッドやマクロを追加した程度のものなので、
+特にsnapshot testでない通常のテストを実行することも可能です。</p>
+
+<p>蛇足ですが、
+「ビューの表面に関わる」テストというと
+<a href="https://github.com/kif-framework/KIF">KIF</a>
+や
+<a href="http://www.testingwithfrank.com">Frank</a>
+などによるエンドツーエンドが一瞬連想されますが、
+これらはUIを介してアプリ全体の機能をテストするものであり、
+単体のビューの描画内容をテストするsnapshot testとは別物です。</p>
+
+<h2 id="使い方">使い方</h2>
+
+<h3 id="インストール">インストール</h3>
+
+<p><a href="http://cocoapods.org">CocoaPods</a>でインストールが可能です。</p>
+<pre><code class="highlight ruby"><span class="c1"># Podfile</span>
+
+<span class="n">target</span> <span class="s1">'MyProjectTests'</span> <span class="k">do</span>
+  <span class="n">pod</span> <span class="s1">'FBSnapshotTestCase'</span><span class="p">,</span> <span class="s1">'~&gt; 1.0'</span>
+<span class="k">end</span>
+</code></pre>
+
+<h3 id="reference-imageファイルを置くディレクトリのパスを設定する">Reference Imageファイルを置くディレクトリのパスを設定する</h3>
+
+<p>Reference imageを保存するディレクトリのパスを、プリプロセッサマクロ<code>FB_REFERENCE_IMAGE_DIR</code>で定義します。</p>
+
+<p>公式には以下の記述をxcconfigファイルに追加する<a href="https://github.com/facebook/ios-snapshot-test-case/blob/1.0/FBSnapshotTestCase.h#L11-L13">例</a>が挙げられています。</p>
+<pre><code class="highlight plaintext">GCC_PREPROCESSOR_DEFINITIONS = $(inherited) FB_REFERENCE_IMAGE_DIR="\"$(SOURCE_ROOT)/$(PROJECT_NAME)Tests/ReferenceImages\""
+</code></pre>
+
+<p>しかし今回はCocoaPodsによって既にxcconfigファイルが自動生成されてしまっており、
+ここに手動で設定を追加するのはメンテナンス性に欠けるため、プロジェクトそのもののBuild Settingsに設定を追加することにします。
+以下のように、テストターゲットの <strong>Build Settings</strong> 内、 <strong>Preprosessor Macros</strong> に<code>FB_REFERENCE_IMAGE_DIR=&quot;\&quot;$(SOURCE_ROOT)/$(PROJECT_NAME)Tests/ReferenceImages\&quot;&quot;</code>を追加します。テストターゲットのファイル群を入れているディレクトリ名をXcodeデフォルトの<code>$(PROJECT_NAME)Tests</code>から変更している場合は、パス中のその部分を合わせます。また、ソース内への展開時に<a href="https://github.com/facebook/ios-snapshot-test-case/blob/1.0/FBSnapshotTestCase.h#L24">Cの文字列リテラルになる必要がある</a>ことに注意して下さい。</p>
+
+<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/fb_reference_image_dir-b88bb69e.png" alt="FB_REFERENCE_IMAGE_DIR" /></p>
+
+<p>ちなみにこの例ではXcodeのビルド設定<code>SOURCE_ROOT</code>や<code>PROJECT_NAME</code>の値を参照しているため、
+ソース内で<code>#define</code>してもこれらは展開されません。</p>
+
+<h3 id="テストケースクラスを準備する">テストケースクラスを準備する</h3>
+
+<p>既存の<code>XCTestCase</code>なテストのスーパークラスを<code>FBSnapshotTestCase</code>に変えるか、
+新しく<code>FBSnapshotTestCase</code>を継承したクラスを作成します。</p>
+
+<p>その後、<code>-setUp</code>メソッド内に<code>self.recordMode = NO;</code>（詳細は後述）を加えます。</p>
+
+<p>雛形としては以下のような形になります。</p>
+<pre><code class="highlight objective_c"><span class="cp">#import &lt;XCTest/XCTest.h&gt;
+#import &lt;FBSnapshotTestCase/FBSnapshotTestCase.h&gt;
+</span>
+<span class="k">@interface</span> <span class="nc">SnapshotTests</span> <span class="p">:</span> <span class="nc">FBSnapshotTestCase</span>
+<span class="k">@end</span>
+
+<span class="k">@implementation</span> <span class="nc">SnapshotTests</span>
+
+<span class="k">-</span> <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">setUp</span>
+<span class="p">{</span>
+    <span class="p">[</span><span class="n">super</span> <span class="nf">setUp</span><span class="p">];</span>
+    <span class="n">self</span><span class="p">.</span><span class="n">recordMode</span> <span class="o">=</span> <span class="nb">NO</span><span class="p">;</span>
+<span class="p">}</span>
+
+<span class="k">@end</span>
+</code></pre>
+
+<h3 id="テストを書く">テストを書く</h3>
+
+<p>通常の<code>XCTestCase</code>のテストと同様に、<code>test</code>で始まるメソッド内にテストを記述します。</p>
+
+<p>テスト対象となるビューを用意し、スナップショットを撮りたい状態にしたら、<code>FBSnapshotVerifyView</code>マクロにビューを渡します。
+ここでは、<code>UILabel</code>によってテキストがちゃんと描画されるかテストすることにします。</p>
+<pre><code class="highlight objective_c"><span class="k">-</span> <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">testLabel</span>
+<span class="p">{</span>
+    <span class="n">UILabel</span> <span class="o">*</span><span class="n">label</span> <span class="o">=</span> <span class="p">[[</span><span class="n">UILabel</span> <span class="nf">alloc</span><span class="p">]</span> <span class="nf">initWithFrame</span><span class="p">:</span><span class="n">CGRectZero</span><span class="p">];</span>
+    <span class="n">label</span><span class="p">.</span><span class="n">text</span> <span class="o">=</span> <span class="s">@"Foo"</span><span class="p">;</span>
+    <span class="p">[</span><span class="n">label</span> <span class="nf">sizeToFit</span><span class="p">];</span>
+    <span class="n">FBSnapshotVerifyView</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="nb">nil</span><span class="p">);</span>
+<span class="p">}</span>
+</code></pre>
+
+<p>さて、ここで <strong>⌘U</strong> でテストを実行してみましょう。
+現在のバージョン1.0.0では実機でのテストはサポートされていないので、シミュレータで実行します。
+すると以下のようなエラーでテストが失敗します。</p>
+<pre><code class="highlight plaintext">...
+Snapshot comparison failed:
+Error Domain=FBTestSnapshotControllerErrorDomain
+Code=1 "Unable to load reference image."
+UserInfo=0xa849a70 {NSLocalizedFailureReason=Reference image not found. You need to run the test in record mode,
+...
+</code></pre>
+
+<p>Reference imageが無いと言われています。当然です。まだ用意していません。</p>
+
+<p>しかし、実はreference imageを自前で用意する必要は基本的にありません。
+前述の<code>self.recordMode</code>を<code>YES</code>にしてテストを実行すると、
+<code>FBSnapshotVerifyView</code>マクロは常に成功し、
+現在のビューのスナップショットをreference imageとして保存するようになります。
+逆に言えばテストをしなくなるので、<code>self.recordMode = YES;</code>の状態で
+Gitなどのバージョン管理システムにコミットしてはいけません。</p>
+
+<p>さて、実際に<code>self.recordMode = YES;</code>に変更してテストを実行してみるとパスするはずです。
+その後<code>git status</code>をしてみると、
+<code>MyProjectTests/ReferenceImages/SnapshotTests/testLabel@2x.png</code>のようなファイルが生成されており、
+<code>Preview.app</code>なりで開いてみると以下のような内容になっているのが確認できます。</p>
+
+<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/testLabel@2x-75555f83.png" width="30" height="21" alt="Foo" class="border" /></p>
+
+<p>適切に表示されているのが確認できたら<code>self.recordMode = NO;</code>に戻し、もう一度テストを実行してパスすることを確認します。
+その後、テストファイルと生成された画像ファイルをコミットします。</p>
+
+<p>これによって今後、ビューがこの画像と同一の内容を描画するかどうかがチェックされることになります。
+一度目視確認してしまえば、後はずっと自動化してくれる訳ですね。</p>
+
+<p>ここまでが基本的なワークフローになります。</p>
+
+<ol>
+<li>テストを書く</li>
+<li><code>self.recordMode = YES;</code>でテストを実行する</li>
+<li>生成された画像を目視で確認する
+
+<ul>
+<li>画像の内容が適切であれば<code>self.recordMode = NO;</code>に戻し、画像と一緒にコミットする</li>
+<li>画像の内容が意図したものでない場合は、意図した表示になるまでビューの実装側のコードを修正、テスト実行（画像生成）、目視確認を繰り返す</li>
+</ul></li>
+</ol>
+
+<h3 id="テストの失敗">テストの失敗</h3>
+
+<p>Reference imageがちゃんと用意されているテストが失敗すると、
+Xcodeのコンソールに以下のようなログが表示されます。</p>
+<pre><code class="highlight plaintext">If you have Kaleidoscope installed you can run this command to see an image diff:
+ksdiff "/Users/me/Library/Application Support/iPhone Simulator/7.0.3/Applications/66392008-F6EB-4C2C-BAE8-90977D37893A/tmp/SnapshotTests/reference_testLabel@2x.png" "/Users/me/Library/Application Support/iPhone Simulator/7.0.3/Applications/66392008-F6EB-4C2C-BAE8-90977D37893A/tmp/SnapshotTests/failed_testLabel@2x.png"
+</code></pre>
+
+<p>この<code>ksdiff</code>の行をターミナルで実行すると、
+GUI diffツールの<a href="http://www.kaleidoscopeapp.com/">Kaleidoscope</a>（有償）で画像の差分が確認できます。
+Kaleidoscopeを持っていない場合は、<code>failed_xxx.png</code>の方のファイルを開けば失敗した画像を確認できます。</p>
+
+<h2 id="tips">Tips</h2>
+
+<h3 id="reference-imageのパス">Reference Imageのパス</h3>
+
+<p>Reference imageは、<code>FB_REFERENCE_IMAGE_DIR</code>以下に<code>テストケースクラス名/テストメソッド名.png</code>で保存されます。
+また、<code>FBSnapshotVerifyView</code>の第2引数に適当な識別子となる<code>NSString</code>を渡すと、それがファイル名に追加されます。
+一つのテストメソッド内で複数回<code>FBSnapshotVerifyView</code>を使う場合に有効です。</p>
+<pre><code class="highlight objective_c"><span class="k">-</span> <span class="p">(</span><span class="kt">void</span><span class="p">)</span><span class="n">testLabel</span>
+<span class="p">{</span>
+    <span class="n">UILabel</span> <span class="o">*</span><span class="n">label</span> <span class="o">=</span> <span class="p">[[</span><span class="n">UILabel</span> <span class="nf">alloc</span><span class="p">]</span> <span class="nf">initWithFrame</span><span class="p">:</span><span class="n">CGRectZero</span><span class="p">];</span>
+
+    <span class="n">label</span><span class="p">.</span><span class="n">text</span> <span class="o">=</span> <span class="s">@"Foo"</span><span class="p">;</span>
+    <span class="p">[</span><span class="n">label</span> <span class="nf">sizeToFit</span><span class="p">];</span>
+    <span class="n">FBSnapshotVerifyView</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="s">@"foo"</span><span class="p">);</span>
+    <span class="c1">// MyProjectTests/ReferenceImages/SnapshotTests/testLabel_foo@2x.png
+</span>
+    <span class="n">label</span><span class="p">.</span><span class="n">text</span> <span class="o">=</span> <span class="s">@"Bar"</span><span class="p">;</span>
+    <span class="p">[</span><span class="n">label</span> <span class="nf">sizeToFit</span><span class="p">];</span>
+    <span class="n">FBSnapshotVerifyView</span><span class="p">(</span><span class="n">label</span><span class="p">,</span> <span class="s">@"bar"</span><span class="p">);</span>
+    <span class="c1">// MyProjectTests/ReferenceImages/SnapshotTests/testLabel_bar@2x.png
+</span><span class="p">}</span>
+</code></pre>
+
+<p>が、基本的には1メソッド1アサーションとし、第2引数は<code>nil</code>で省略した方が良いと思います。</p>
+
+<h3 id="retina・非retina">Retina・非Retina</h3>
+
+<p>既にお気付きかと思いますが、画像はRetina用と非Retina用で別々に書き出されるので、
+非Retina環境でビューの位置が0.5ポイントずれて表示がボケるようなケースにも対応できます。
+Rakeやシェルスクリプトを使って、一挙にRetinaと非Retina両方でテストを実行するようなタスクを準備しておくと便利です。</p>
+
+<h3 id="ビューの内部実装に非依存">ビューの内部実装に非依存</h3>
+
+<p><code>FBSnapshotTestCase</code>は<code>-[CALayer renderInContext:]</code>を使ってスナップショットを撮っており、
+これでキャプチャできるものであれば、
+内部的に複数のサブビューを組み合わせていようが、CALayerを使っていようが、
+Core Graphicsを使っていようが、<code>UIImageView</code>で画像を貼付けているだけであろうが、何でもかまいません。
+パフォーマンス上の都合から内部実装を大きく変えつつ描画内容は変えない、といったリファクタリングにも有効そうですね。</p>
+
+<h3 id="何から何までスナップショットを撮らなくても良い">何から何までスナップショットを撮らなくても良い</h3>
+
+<p>特に既存のライブラリにテストを追加する場合、いきなりあらゆるケースを網羅しようとするとしんどいので、
+エッジケースで表示崩れのバグが見つかった場合にテストを追加する程度で良い気がしています。
+そもそも<code>recordMode</code>の仕組みとワークフローからしてリグレッションテスト向きで、
+実際<code>FBSnapshotTestCase</code>はそのような動機で開発されたようです。</p>
+
+<blockquote>
+<p>At Facebook we write a lot of UI code. As you might imagine, each type of feed story is rendered using a subclass of UIView. There are a lot of edge cases that we want to handle correctly:</p>
+
+<p>&hellip;</p>
+</blockquote>
+
+<h3 id="自分でreference-imageを作っても良い">自分でReference Imageを作っても良い</h3>
+
+<p><code>self.recordMode = YES;</code>でreference imageを自動生成できますが、
+自前で画像を用意してもかまいません。
+あまりなさそうなケースですが、完成イメージが固まっていて描画内容が比較的単純な場合、
+適当な画像編集ツールでreference imageを先に作っておくことで、テストファーストなビュー開発をすることもできそうです。
+今回の<code>NAKPlaybackIndicatorView</code>なんかはまさに打ってつけですね（実際は途中から導入したのでテストファーストではありませんでしたが）。</p>
+
+<h2 id="感想">感想</h2>
+
+<p>正直なところ、最初はビューの描画テストなんてものすごい面倒くさくて割に合わないものかと思っていましたが、
+下準備が済んでテストを追加するワークフローに入ってしまえば想像より断然楽でした。
+<code>CGRect</code>のアサーションをちまちま書いたりするより早いし、
+何より画像を目視確認できるので複雑で難解なアサーションを読み解く必要もありません。
+実際<code>NAKPlaybackIndicatorView</code>では、
+<code>CALayer</code>の<code>anchorPoint</code>と<code>position</code>プロパティの兼ね合いで描画位置がずれていたのに気付くことができました。</p>
+
+<p><code>FBSnapshotTestCase</code>はGitHubでスターが現在350ほども付いているにも関わらず、
+今のところ英語圏も含めて紹介している記事が見当たりませんが、
+ビューのテストを考えているのであれば一度試してみてはいかがでしょうか。
+特に汎用化したOSSなビューライブラリなどでは、使う価値は十分あると思います。</p>
+</div></article><article><h2 class="title"><a href="/posts/how-to-create-cocoapods-plugin/">CocoaPodsのプラグインを作る</a></h2><p class="date">Dec 14th, 2013</p><div class="body"><p>この記事は<a href="http://qiita.com/advent-calendar/2013/ios-2">iOS Second Stage Advent Calendar 2013</a>の14日目の記事です。</p>
+
+<h2 id="概要">概要</h2>
+
+<p>Cocoaのライブラリ管理ツールであるCocoaPodsですが、2013年11月14日にリリースされたバージョン0.28で、プラグイン機能が導入されました。</p>
+
+<ul>
+<li><a href="http://blog.cocoapods.org/CocoaPods-0.28/">CocoaPods 0.28 - CocoaPods Blog</a></li>
+</ul>
+
+<p>本記事ではこのプラグインの作り方を紹介します。</p>
+
+<h2 id="cocoapodsプラグインとは">CocoaPodsプラグインとは</h2>
+
+<p>CocoaPodsのプラグイン機能を利用すると、<code>pod</code>コマンドに任意のサブコマンドを追加することができます。標準サブコマンドの<code>pod install</code>や<code>pod update</code>と同列な、新たなサブコマンドの作成が可能です。</p>
+
+<p>CocoaPodsはRubyで作られたツールなので、プラグインもRubyで書く必要があります。また、プラグインの配布にはRubyGemsを利用します。</p>
+
+<p>このプラグインの仕組みそのものは、CocoaPodsプロジェクトが依存gemとして利用している<a href="https://github.com/CocoaPods/CLAide">CLAide</a>によって<a href="https://github.com/CocoaPods/CLAide/pull/3">可能になりました</a>。</p>
+
+<h2 id="プラグインを作る">プラグインを作る</h2>
+
+<p>ここでは<code>check-latest</code>というサブコマンドを定義する、<code>cocoapods-check_latest</code>というgemを作ることにします。これは指定したライブラリのpodの最新バージョンが、そのライブラリのGitHubリポジトリの最新のバージョンタグと同一かどうかをチェックするコマンドです。</p>
+
+<p>試しにCocoaPodsで導入してみたライブラリがうまく動作しないと思ったら、実は最新のpodspecで指定されているライブラリのバージョンが、そのライブラリの本当の最新バージョンではなかった（この表現わかりにくいですね）という場面がたまにあったりします。なので事前にpodspecが最新かどうかチェックしたいのですが、そのライブラリのGitHubのリポジトリをブラウザで開いてタグ一覧を確認、というのも割と面倒なルーチンワークなので、この作業を自動化することにします。</p>
+
+<p>まずは新しくgemのプロジェクトを作成します。<a href="http://bundler.io/">Bundler</a>を利用するのが良いでしょう。なお、gem名は<code>cocoapods-プラグイン名</code>にすることが公式に推奨されています。そうしないとプラグインとして動作しない訳ではありませんが、RubyGemsでの検索のしやすさも考慮した慣例になっています。RubyGemsを<code>cocoapods-</code>で<a href="http://rubygems.org/search?utf8=✓&amp;query=cocoapods-">検索</a>すれば、現在公開されているプラグインの一覧が見られる訳ですね。</p>
+<pre><code class="highlight shell"><span class="gp">$ </span>bundle gem cocoapods-check_latest
+...
+<span class="gp">$ </span><span class="nb">cd </span>cocoapods-check_latest
+</code></pre>
+
+<h3 id="コマンドクラスを作成する">コマンドクラスを作成する</h3>
+
+<p><code>Pod::Command</code>クラスを継承したコマンドクラスを作成します。</p>
+<pre><code class="highlight ruby"><span class="c1"># lib/pod/command/check_latest.rb</span>
+
+<span class="k">module</span> <span class="nn">Pod</span>
+  <span class="k">class</span> <span class="nc">Command</span>
+    <span class="c1"># クラス名からサブコマンド名が自動生成される。</span>
+    <span class="c1"># CamelCaseの単語間には"-"が挿入されるため、この場合"check-latest"になる。</span>
+    <span class="k">class</span> <span class="nc">CheckLatest</span> <span class="o">&lt;</span> <span class="no">Command</span>
+      <span class="c1"># 必須。`pod help`時に一行で表示される概要を記述する。</span>
+      <span class="nb">self</span><span class="p">.</span><span class="nf">summary</span> <span class="o">=</span> <span class="s1">'Check if the latest version of a pod is up to date'</span>
+
+      <span class="c1"># 任意。`pod help check-latest`時に表示される、より詳細な説明を記述する。</span>
+      <span class="c1"># 未指定の場合、summaryの内容が表示される。</span>
+      <span class="nb">self</span><span class="p">.</span><span class="nf">description</span> <span class="o">=</span> <span class="s1">'Some long description...'</span>
+
+      <span class="c1"># コマンドラインから引数を受け取るコマンドの場合は必須。</span>
+      <span class="c1"># `pod help check-latest`時に、</span>
+      <span class="c1">#</span>
+      <span class="c1"># Usage:</span>
+      <span class="c1">#     $ pod check-latest [NAME]</span>
+      <span class="c1">#                        ^^^^^^ ここに表示される。</span>
+      <span class="nb">self</span><span class="p">.</span><span class="nf">arguments</span> <span class="o">=</span> <span class="s1">'[NAME]'</span>
+
+      <span class="c1"># 引数を受け取るコマンドの場合は必須。</span>
+      <span class="c1"># argvから、後の処理で必要な引数をインスタンス変数に取り出しておく。</span>
+      <span class="c1"># この処理はsuper呼び出し前に行うこと。</span>
+      <span class="c1"># argvは、CLAide::ARGVのインスタンス。</span>
+      <span class="c1"># https://github.com/CocoaPods/CLAide/blob/v0.4.0/lib/claide/argv.rb</span>
+      <span class="k">def</span> <span class="nf">initialize</span><span class="p">(</span><span class="n">argv</span><span class="p">)</span>
+        <span class="vi">@name</span> <span class="o">=</span> <span class="n">argv</span><span class="p">.</span><span class="nf">shift_argument</span>
+        <span class="k">super</span>
+      <span class="k">end</span>
+
+      <span class="c1"># 引数を受け取るコマンドの場合は必須。</span>
+      <span class="c1"># 引数が不正な場合はhelp!メソッドにメッセージを渡して中断する。</span>
+      <span class="k">def</span> <span class="nf">validate!</span>
+        <span class="k">super</span>
+        <span class="n">help!</span><span class="p">(</span><span class="s1">'A pod name is required.'</span><span class="p">)</span> <span class="k">unless</span> <span class="vi">@name</span>
+      <span class="k">end</span>
+
+      <span class="c1"># 実際の処理を記述する。</span>
+      <span class="k">def</span> <span class="nf">run</span>
+        <span class="c1"># 長いので省略。実際の内容は以下を参照して下さい。</span>
+        <span class="c1"># https://github.com/yujinakayama/cocoapods-check_latest/blob/v0.0.1/lib/pod/command/check_latest.rb</span>
+      <span class="k">end</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre>
+
+<p>ちなみに、CocoaPodsのサブコマンドを定義するということは、CocoaPods本体のAPIを利用できる訳ですが、現時点ではどのクラスやメソッドがpublic APIであるかという宣言がされていません。将来的にはこの辺りも整備されてくるとは思いますが、現状では利用対象のクラスやメソッドが存在しているかどうかのチェックや、例外処理などをこまめに行うしかない模様です。どちらにしてもCocoaPodsは未だにバージョン1.0未満の初期開発段階なので、<a href="http://semver.org/">Semantic Versioning</a>的にもAPIの互換性はあまり重視されないフェーズではあるのですが。</p>
+
+<h3 id="作成したコマンドが、podコマンド実行時に読み込まれるようにする">作成したコマンドが、<code>pod</code>コマンド実行時に読み込まれるようにする</h3>
+
+<p>コマンドを作成しただけでは、CocoaPods本体がその存在を認識できません。</p>
+
+<p>Rubyの<code>$LOAD_PATH</code>に登録されたパス直下（通常はプロジェクトの<code>lib</code>ディレクトリ直下）に、<code>cocoapods_plugin.rb</code>というファイルを作成し、その中で上記のコマンドクラスが記述されたファイルを<code>require</code>します。これによって<code>pod</code>コマンド実行時にカスタムコマンドクラスがロードされるようになります。</p>
+<pre><code class="highlight ruby"><span class="c1"># lib/cocoapods_plugin.rb</span>
+
+<span class="nb">require</span> <span class="s1">'pod/command/check_latest'</span>
+</code></pre>
+
+<h2 id="動作確認をする">動作確認をする</h2>
+
+<p>実際に<code>pod</code>コマンド経由で動くか確認してみましょう。</p>
+<pre><code class="highlight shell"><span class="gp">$ </span><span class="nb">echo</span> <span class="s2">"gem 'cocoapods', '~&gt; 0.28'"</span> &gt;&gt; Gemfile
+<span class="gp">$ </span>bundle install
+...
+<span class="gp">$ </span>bundle <span class="nb">exec </span>pod <span class="nb">help</span> | grep check-latest
+    <span class="k">*</span> check-latest   Check <span class="k">if </span>the latest version of a pod is up to date
+<span class="gp">$ </span>bundle <span class="nb">exec </span>pod check-latest viewcontroller
+
+
+<span class="gp">-&gt; </span>AMBubbleTableViewController
+   - Homepage: https://github.com/andreamazz/AMBubbleTableView
+   - Latest pod version:0.5.1
+   - Latest version <span class="k">in </span>original repo:0.5.1
+
+
+<span class="gp">-&gt; </span>APPinViewController
+   - Homepage: https://github.com/Alterplay/APPinViewController
+   - Latest pod version:1.0.2
+   - Latest version <span class="k">in </span>original repo:1.0.2
+
+
+<span class="gp">-&gt; </span>ARGenericTableViewController
+   - Homepage: https://github.com/arconsis/ARGenericTableViewController
+   - Latest pod version:1.0.0
+   - Latest version <span class="k">in </span>original repo:1.0.1
+   Outdated!
+
+...
+</code></pre>
+
+<h2 id="プラグインを配布する">プラグインを配布する</h2>
+
+<p>あとはRubyGemsのルールに則ってgemを公開しましょう。</p>
+
+<p><code>cocoapods-check_latest.gemspec</code>の<code>description</code>, <code>summary</code>, <code>homepage</code>あたりの項目を<a href="http://guides.rubygems.org/specification-reference/">記述</a>し、BundlerのRakeタスクで公開します。</p>
+<pre><code class="highlight shell"><span class="gp">$ </span>rake release
+</code></pre>
+
+<h2 id="おわりに">おわりに</h2>
+
+<p>実際に作成した<a href="https://github.com/yujinakayama/cocoapods-check_latest">cocoapods-check_latest</a>プラグインを公開しました。<code>gem install cocoapods-check_latest</code>でインストールができます。</p>
+</div></article><div class="paginate"><a href="/page/2/">Next page</a></div></main><footer><p class="copyright">&copy; 2013–2014 Yuji Nakayama</p></footer><script src="javascripts/all-da39a3ee.js" type="text/javascript"></script><script type="text/javascript">(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+ga('create', 'UA-42195703-1', 'yujinakayama.me');
+ga('send', 'pageview');</script></body></html>

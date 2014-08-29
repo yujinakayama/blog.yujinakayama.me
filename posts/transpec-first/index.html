@@ -1,0 +1,413 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><meta content="IE=edge" http-equiv="X-UA-Compatible" /><meta content="width=device-width, initial-scale=1.0" name="viewport" /><title>Transpec 開発記 – 前編 – blog.yujinakayama.me</title><link rel="alternate" type="application/atom+xml" title="Atom Feed" href="/feed.xml" /><link href="../../stylesheets/all-d4d309f2.css" rel="stylesheet" type="text/css" /></head><body><header><h1><a href="/">blog.yujinakayama.me</a></h1><nav class="social"><ul><li><a class="twitter" href="http://twitter.com/nkym37" target="_blank"><span class="text">Twitter</span></a></li><li><a class="github" href="https://github.com/yujinakayama" target="_blank"><span class="text">GitHub</span></a></li></ul></nav></header><main><article><h2 class="title"><a href="/posts/transpec-first/">Transpec 開発記 – 前編</a></h2><p class="date">Aug 28th, 2014</p><div class="body"><p><a href="http://yujinakayama.me/transpec/">Transpec</a>という、RSpecの古い記法で書かれたspecを、最新の記法に自動で書き換えるツールを作った。</p>
+
+<p>最初のバージョン0.0.1をリリースしたのが2013年8月9日なので、すでに一年前になる。
+先日のRSpec 3の正式リリースからもしばらく経って一段落したところだし、
+この辺で一旦振り返って、
+開発中のその時々で何を考えていたのか、忘れてしまう前に長々と残しておくことにする。</p>
+
+<h2 id="きっかけ">きっかけ</h2>
+
+<p>そもそもTranspecを作り始めたきっかけは、
+should記法を使っていた自分のプロジェクトのspecをexpect記法に書き換えようとしたところから。
+これは2013年の7月下旬の話で、まだRSpec 2.99/3.0のベータ版も出ていない頃。</p>
+
+<p>正直なところexpect記法が導入された当初は違和感があったし、
+更には<a href="http://myronmars.to/n/dev-blog/2013/07/the-plan-for-rspec-3">The Plan for RSpec 3</a>も発表され、
+「このままRSpecを使い続けるべきなのか？」と言う気持ちもあった。
+しかし実際他のテストフレームワークを触ってみたり、変更に至った経緯を詳しく追っていくうちに、
+なんだかんだでやっぱりRSpecかなという結論に。
+例え乗り換えるにしても、既存のRSpecを使ったプロジェクトを今すぐ放り投げられる訳でもない。</p>
+
+<p>また、別ブロジェクトでexpect記法を使っているうちにそっちに慣れてきたこともあって、
+自分のプロジェクトも全部書き換えることにした。</p>
+
+<p>流石にすべて手作業はしんどいので、
+まずは安直に正規表現のワンライナーで
+<code>find spec -name &#39;*.rb&#39; | xargs perl -i -pe &#39;s/(\w+)\.should/.../g&#39;</code><sup id="fnref1"><a href="#fn1" rel="footnote">1</a></sup>
+とかやってちまちま変換しようと試みる。
+が、実際やってみると誤変換や変換残りが結構あるし、
+<a href="https://github.com/yujinakayama/transpec#operator-matchers">演算子マッチャ</a>がからんできたりもするので、
+ワンライナーでスムーズにやれるレベルではないと認識。</p>
+
+<p>そもそも正規表現なんて緩い仕組みで複雑なソースコードの書き換えをしようというのが間違っている。
+単なる文字列処理ではなく、
+ちゃんとRubyコードの意味を解釈して変換したいコードを狙い撃つ方がスマートだし、
+正規表現と延々と格闘して消耗するより早い。
+幸い<a href="https://github.com/bbatsov/rubocop">RuboCop</a>プロジェクトでの経験から、
+ソースコードのパースによって得られるAST（Abstract Syntax Tree）の扱いと、
+ソース書き換えのノウハウはあったので、
+静的解析ベースの変換ツールを作ってみることにした。
+この時点では自分用のツールで、汎用化するつもりはあまりなかった。</p>
+
+<h2 id="プロトタイプ">プロトタイプ</h2>
+
+<p>思い立ったが吉日、まずはプロトタイプを作った。</p>
+
+<p>とりあえずは<code>obj.should</code>から<code>expect(obj).to</code>への置き換えと、それに伴う演算子マッチャの変換のみで、
+コードはせいぜい200行程度。
+ちなみにこの時のプロジェクト名はExpectizeで、
+その名残が未だに<a href="https://github.com/yujinakayama/transpec/blob/v2.3.7/lib/transpec/syntax/should.rb#L26">一つのメソッド</a>として残っている。</p>
+
+<p>実際にプロトタイプを実行してみると、自分が想像していた以上にうまく変換できていて予想外に感動した。
+何より一気に自動変換された後のdiffを眺めていると、なんかこう、気持ち良いというか、
+まるで人間が書き換えたかのような魔法っぽさがすごい面白かった。
+「お、おお〜、おほ、おほほほほ」とか言いながらニヤニヤしていたと思う。
+これは面白いぞ。単なる退屈な作業の省力化という、マイナスをゼロへ近づけるだけのものでなく、
+本来ネガティブな体験をポジティブなものに変えられる可能性があるというのはデカい。</p>
+
+<h2 id="モチベーション">モチベーション</h2>
+
+<p>というプロトタイプの感触から、汎用化してリリースすることを決めた。
+Transpecの開発に対するモチベーションは他にも色々あったけど、
+常にコアとなっていたのはこの「いかにポジティブな体験にするか」という部分だったように思う。</p>
+
+<p>どうせやるならshould/expect記法の変換だけでなく、RSpec 3における各種変更もサポートしちゃおう、
+ということでRSpec 3へのアップグレード補助ツールという位置付けを狙うことにした。</p>
+
+<p>また、決定打となったのはプロトタイプの感触ではあったものの、
+他にもいくつかのモチベーションがあった。</p>
+
+<h3 id="コミュニティへの還元">コミュニティへの還元</h3>
+
+<p>自分が困っている問題は、他にも困っている人がいるはず。
+特にRSpec 3が正式リリースされたら、
+アップグレード作業の面倒くささにコミュニティから不満が噴出するだろうと思った。</p>
+
+<p>最初のきっかけの時点から、RSpecのコードを読んだりリポジトリをウォッチしたりして、
+RSpecそのものやRSpec 3での変更に関する知見がかなり得られてきていた。
+せっかくだから「RSpec 3へのアップグレードコンプリートガイド」みたいな記事書こうかな、
+と考えたりもした。</p>
+
+<p>しかし、そのノウハウの大半はアップグレード時の一過性のものだし、
+その知識も地道なアップグレード作業も、即座に価値を産み出すものではない。
+しかも、様々なケースを網羅してどう対処すべきかを緻密に自然言語で書き、
+読者がそれを読み解いて忠実に実行する、
+それって人間の仕事じゃないでしょ。
+ということで、それらのノウハウは可能な限り実行可能なコードに落とし込み、
+誰もが簡単に実行できるようにすることにした。</p>
+
+<h3 id="rubyにおける実用レベルのコード変換の実現">Rubyにおける実用レベルのコード変換の実現</h3>
+
+<p>単なる proof of concept 的な「なんか面白いもの作ってみた」程度のものではなく、
+現実世界に存在する無数のプロジェクトでの利用に耐えうるクオリティのものを実現できるか、
+試してみたかった。</p>
+
+<p>言語やフレームワークの変更に対して、ソースコードの自動書き換えによって対応した前例としては、
+自分が経験した中ではXcodeによるObjective-CのMRCからARCへの変換や、
+Modern Objective-Cへの変換がある。
+この変換の精度はそこまで完璧ではなかったけれど、
+まあ必要な作業の8割くらいはやってくれたかな？くらいな印象だった、気がする。</p>
+
+<p>他には、使ったことはないけれど、Python 2のコードをPython 3対応に変換する<a href="https://docs.python.org/2/library/2to3.html"><code>2to3</code></a>というツールもあるらしい。</p>
+
+<p>Rubyの世界ではそういう大きな前例は聞いたことがなかったし、
+動的型付け言語であるという時点で（静的解析で得られる情報が少ないため）
+不利なことは否めなかったけど、
+実現できるか？できたとしてコミュニティがどう受け止めるか？
+みたいな好奇心があった。</p>
+
+<p>とは言っても、Rubyでは全然無理ですなんてことはまず有り得なくて、
+少なくとも7〜8割くらいのケースはカバーできるだろうとは予想していた。
+ただそれ以上の精度に関しては、言語の変更なのかフレームワークの変更なのか、
+また、言語が静的型付けなのか動的型付けなのか、という辺りで大分変わると思うので未知数だった。</p>
+
+<h2 id="技術的課題">技術的課題</h2>
+
+<p>さて、モチベーションが湧いて夢が広がりんぐな構想を巡らせていると、
+色々な課題も浮かび上がってくる。</p>
+
+<p>人間の仕事ではないので機械にやらせようとは言ったものの、
+ソースコードを正確に書き換えるという行為は、
+機械がやるにはちょっと面倒くさくて、人間がやるには単調過ぎる、
+というような微妙な領域にあると思う。</p>
+
+<p>ソースの変換処理というのは、大きく以下の三つののフェーズに分けることができて、
+それぞれに問題が見えてきた。</p>
+
+<ul>
+<li>変換対象の検出</li>
+<li>どんな形に変換するかの判断</li>
+<li>書き換え処理</li>
+</ul>
+
+<h3 id="コードスタイルの尊重">コードスタイルの尊重</h3>
+
+<p>これは書き換え処理における問題。</p>
+
+<p>今回Transpecが書き換えるソースコードはspecファイルであり、
+変換後も人間がメンテナンスしていくものである。
+そんなソースに対して、
+変換前のコードスタイルを完全に無視して違和感バリバリのコードを生成するような、
+おざなりな仕事をするツールは自分がユーザーだったら使いたくない。</p>
+
+<p>という訳で、なるべく既存のコードスタイルを活かした変換をしたい。
+もちろん、不正なコードを出力しないという大前提と共に。
+さてどうすんのという話だけど、これについては銀の弾丸はない。</p>
+
+<p>Transpecが行うのは、RSpecの等価なAPI間の変換である。
+その等価なAPI — 例えば<code>obj.should</code>と<code>expect(obj).to</code> — というのは、
+RSpecという単なる1フレームワークがRubyレイヤーの上に作り上げたものに過ぎず、
+Rubyのレベルで見ると変換前後でのプログラムの意味は等価ではなくなる。
+プログラムの意味が変わるということは、つまりASTの構造も変わる。</p>
+
+<p>そもそもASTって何なのという話だけど、<a href="http://ja.wikipedia.org/wiki/抽象構文木">Wikipedia</a>によると、</p>
+
+<blockquote>
+<p>抽象構文木（abstract syntax tree、AST）とは、通常の構文木（具象構文木、あるいはparse treeとも言う）から、言語の意味に関係ない情報を取り除き、意味に関係ある情報のみを取り出した（抽象した）木構造のデータ構造である。</p>
+</blockquote>
+
+<p>らしい。
+これは要するに、ASTはプログラムの意味を解析するのに便利なデータ構造であり、
+その上でノイズにしかならない、ソースコード上での見栄えに関する情報を取り除いたもの、ということ。</p>
+
+<p>例えば「<code>if</code>文の中で<code>puts</code>メソッドで文字列<code>&quot;foo&quot;</code>を出力している処理」を検出したいという要求があった場合、
+こういうコードも、</p>
+<pre><code class="highlight ruby"><span class="k">if</span> <span class="n">some_condition</span>
+  <span class="nb">puts</span> <span class="s1">'foo'</span>
+<span class="k">end</span>
+</code></pre>
+
+<p>こんなコードも、</p>
+<pre><code class="highlight ruby"><span class="nb">puts</span><span class="p">(</span><span class="s2">"foo"</span><span class="p">)</span> <span class="k">if</span> <span class="n">some_condition</span>
+</code></pre>
+
+<p>ソースコード上での形は違うが、プログラムとしての意味は全く同じなので、これらを等価に扱える必要がある。</p>
+
+<p>もしソースコードを文字列としてそのまま解析するのであれば、
+そんな処理を実装するのは気が遠くなる話だけど、
+そんな気が遠くなることを代わりにやってくれるパーサーという有り難い存在がある。
+パーサーは入力としてソースコードを受け取り、出力としてASTなどのデータを吐き出す。
+上記の2つの例をパースして得られるASTは、なんと両方とも以下の構造になる。
+これは<a href="https://github.com/whitequark/parser">Parser</a>によって生成されたASTをS式で表現したもので、
+実際には木構造になっている。</p>
+<pre><code class="highlight plaintext">(if
+  (send nil :some_condition)
+  (send nil :puts
+    (str "foo")) nil)
+</code></pre>
+
+<p>つまり、ASTだけを見ればソースコード上の細かな違いを気にせず、意味の解析に集中できる。
+超便利。</p>
+
+<p>さて、話をソースの書き換えに戻すと、プログラムの意味を変えるソース変換の一つの方法として、
+ソースを文字列として操作するのではなく、
+元のソースから得られたASTの構造を組み替え（AST変換）、
+その組み替えられたASTから意味的に等価になるソースを自動生成するという方法がある。</p>
+
+<p><img alt="AST Transformation" src="ast_transformation-c94d4cfa.svg" /></p>
+
+<p>この方法を使えば、ASTだけを見れば良いので変換のロジックはシンプルになるし、
+少なくともRubyレベルで不正なソースコードを吐き出すことはなくなる。</p>
+
+<p>しかし前述の通り、ASTはソースコード上の見栄えに関する情報が失われているため、
+ASTから生成されたソースには、元のソースのスタイルが全く反映されない<sup id="fnref2"><a href="#fn2" rel="footnote">2</a></sup>。</p>
+
+<p>ということでここまで長々と書いたけど、Transpecではこの方法は使っていない。
+代わりに、ParserのASTは元のソースへのロケーションマップ情報を持っているので、
+それを参照しながら地道に文字列操作をすることにした。
+つまりロケーションマップという補助的な情報はあるけれど、
+結局は原始的な文字列操作なので、
+変換対象の周囲のコードに配慮をしないと不正なコードを出力してしまう可能性はある。</p>
+
+<p>世の中には、Rubyの構文の自由度の高さを活かした変態的なコードを書く人もいるけど、
+そんな未知のコードであろうが、Rubyとして正しく、RSpecのAPIを正しく使っている限り、
+なるべく正常に変換できるようにしたい。
+これについては結局、テストケースを充実させながら地道に実装していくしかないという結論に。</p>
+
+<h3 id="astだけでは情報が足りない">ASTだけでは情報が足りない</h3>
+
+<p>これは、変換対象の検出と、どんな形に変換するかの判断に関わる問題。</p>
+
+<h4 id="インターフェースが似ている同名のメソッドを見分けられない">インターフェースが似ている同名のメソッドを見分けられない</h4>
+
+<p>例えば、今回Transpecが変換対象とする、<code>mock</code>と<code>stub</code>というRSpec 3で廃止されたメソッドがある。
+これは<code>double</code>の単純なaliasであり、
+書き換え処理としては<code>mock</code>というメソッド名を<code>double</code>に置換するだけで良い。</p>
+
+<p>が、それはその<code>mock</code>が本当にRSpecによって定義された<code>mock</code>であればの話。</p>
+
+<p>例えばこんな<code>mock</code>呼び出しがあったとき、</p>
+<pre><code class="highlight ruby">  <span class="n">it</span> <span class="s1">'is an object'</span> <span class="k">do</span>
+    <span class="n">book</span> <span class="o">=</span> <span class="n">mock</span><span class="p">(</span><span class="s1">'book'</span><span class="p">)</span>
+    <span class="n">book</span><span class="p">.</span><span class="nf">should</span> <span class="n">be_an</span><span class="p">(</span><span class="no">Object</span><span class="p">)</span>
+  <span class="k">end</span>
+</code></pre>
+
+<p>これはRSpecの<code>mock</code>だろうか？<code>double</code>に変換して良いだろうか？
+それはASTを見てもわからない。</p>
+
+<p>上記のソースコードから得られるASTの中で、
+コード片<code>mock(&#39;book&#39;)</code>に対応するノードは以下の形になる。</p>
+<pre><code class="highlight plaintext">(send nil :mock
+  (str "book"))
+</code></pre>
+
+<p>Rubyは動的型付け言語なので、静的に得られたデータであるASTに型情報はない<sup id="fnref3"><a href="#fn3" rel="footnote">3</a></sup>。
+このASTからわかるのは、
+それがメソッド呼び出しであり、レシーバーは省略されていて、メソッド名は<code>mock</code>で、
+文字列リテラル<code>&quot;book&quot;</code>を引数として渡している、ということだけ。</p>
+
+<p>この呼び出し方であれば、
+<a href="http://rubydoc.info/gems/mocha/Mocha/API#mock-instance_method">Mochaの<code>mock</code></a>であってもおかしくないし、
+<a href="https://github.com/rr/rr/tree/v1.1.2#mocks">RRの<code>mock</code></a>の可能性もある<sup id="fnref4"><a href="#fn4" rel="footnote">4</a></sup>。
+もしくはユーザーが自分で定義したヘルパーメソッドかもしれない。
+当然それらを間違って<code>double</code>に変換してしまうと、specが壊れる。</p>
+
+<p>結局のところ、ASTのみを頼りに変換対象のメソッドを探す場合、使える情報としては</p>
+
+<ul>
+<li>メソッド名のユニークさ</li>
+<li>レシーバーを取るかどうか</li>
+<li>引数の数</li>
+</ul>
+
+<p>程度の、割とゆるい情報しかないという問題がある。</p>
+
+<p>流石に<code>should</code>という名前のメソッドが自前で定義されている、というケースはあまりなさそうだけど、
+上記の<code>mock</code>とか、<code>stub</code>なんかは結構他のフレームワークとかぶっていたりする。
+また<code>example</code>というメソッドは、RSpec内だけでも2つ存在している上に、
+普遍的な名前過ぎてユーザーのヘルパーメソッドや<code>let</code>によって不意にオーバーライドされてしまっていることがある。</p>
+
+<h4 id="どんな形に変換するべきか判断できない">どんな形に変換するべきか判断できない</h4>
+
+<p>もう一つの例として、RSpec 3で廃止された<code>have(n).items</code>マッチャというものがある。
+これはテスト対象オブジェクトの性質によってその挙動を変える、
+やり過ぎ感あふれるマッチャだったりする。</p>
+
+<p>以下、その挙動のバリエーション。</p>
+<pre><code class="highlight ruby"><span class="k">class</span> <span class="nc">NumberSet</span>
+  <span class="k">def</span> <span class="nf">initialize</span><span class="p">(</span><span class="o">*</span><span class="n">numbers</span><span class="p">)</span>
+    <span class="vi">@numbers</span> <span class="o">=</span> <span class="n">numbers</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">count</span>
+    <span class="vi">@numbers</span><span class="p">.</span><span class="nf">size</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">odd_numbers</span>
+    <span class="vi">@numbers</span><span class="p">.</span><span class="nf">select</span><span class="p">(</span><span class="o">&amp;</span><span class="ss">:odd?</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">even_numbers</span>
+    <span class="vi">@numbers</span><span class="p">.</span><span class="nf">select</span><span class="p">(</span><span class="o">&amp;</span><span class="ss">:even?</span><span class="p">)</span>
+  <span class="k">end</span>
+
+  <span class="k">def</span> <span class="nf">numbers_more_than</span><span class="p">(</span><span class="n">threshold</span><span class="p">)</span>
+    <span class="vi">@numbers</span><span class="p">.</span><span class="nf">select</span> <span class="p">{</span> <span class="o">|</span><span class="n">number</span><span class="o">|</span> <span class="n">number</span> <span class="o">&gt;</span> <span class="n">threshold</span> <span class="p">}</span>
+  <span class="k">end</span>
+
+  <span class="kp">private</span>
+
+  <span class="k">def</span> <span class="nf">negative_numbers</span>
+    <span class="vi">@numbers</span><span class="p">.</span><span class="nf">select</span> <span class="p">{</span> <span class="o">|</span><span class="n">number</span><span class="o">|</span> <span class="n">number</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="p">}</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+
+<span class="n">describe</span> <span class="s1">'have(n).items'</span> <span class="k">do</span>
+  <span class="n">let</span><span class="p">(</span><span class="ss">:set</span><span class="p">)</span> <span class="p">{</span> <span class="no">NumberSet</span><span class="p">.</span><span class="nf">new</span><span class="p">(</span><span class="o">-</span><span class="mi">7</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">5</span><span class="p">)</span> <span class="p">}</span>
+
+  <span class="n">it</span> <span class="s1">'is complicated'</span> <span class="k">do</span>
+    <span class="c1"># テスト対象が、末尾のitems部と同名のメソッドに応答せず、</span>
+    <span class="c1"># size, length, countいずれかのメソッドに応答する場合</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">5</span><span class="p">).</span><span class="nf">items</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">5</span><span class="p">).</span><span class="nf">numbers</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">5</span><span class="p">).</span><span class="nf">qawsedrftgyhujikolp</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">.</span><span class="nf">count</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">5</span><span class="p">)</span> <span class="c1"># 等価</span>
+
+    <span class="c1"># テスト対象がodd_numbersメソッドに応答する場合</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">4</span><span class="p">).</span><span class="nf">odd_numbers</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">.</span><span class="nf">odd_numbers</span><span class="p">.</span><span class="nf">size</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">4</span><span class="p">)</span> <span class="c1"># 等価</span>
+
+    <span class="c1"># ActiveSupport::Inflectorがロードされていない場合</span>
+    <span class="n">expect</span> <span class="p">{</span>
+      <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">1</span><span class="p">).</span><span class="nf">even_number</span> <span class="c1"># Fail</span>
+    <span class="p">}.</span><span class="nf">to</span> <span class="n">raise_error</span><span class="p">(</span><span class="no">RSpec</span><span class="o">::</span><span class="no">Expectations</span><span class="o">::</span><span class="no">ExpectationNotMetError</span><span class="p">)</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">1</span><span class="p">).</span><span class="nf">even_numbers</span>  <span class="c1"># Pass</span>
+
+    <span class="c1"># ActiveSupport::Inflectorがロードされている場合</span>
+    <span class="nb">require</span> <span class="s1">'active_support/inflector'</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">1</span><span class="p">).</span><span class="nf">even_number</span>   <span class="c1"># Pass</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">1</span><span class="p">).</span><span class="nf">even_numbers</span>  <span class="c1"># Pass</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">.</span><span class="nf">even_numbers</span><span class="p">.</span><span class="nf">size</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span> <span class="c1"># 等価</span>
+
+    <span class="c1"># 引数が渡された場合</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">2</span><span class="p">).</span><span class="nf">numbers_more_than</span><span class="p">(</span><span class="mi">1</span><span class="p">)</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">.</span><span class="nf">numbers_more_than</span><span class="p">(</span><span class="mi">1</span><span class="p">).</span><span class="nf">size</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span> <span class="c1"># 等価</span>
+
+    <span class="c1"># テスト対象がsize, length, countいずれにも応答せず、</span>
+    <span class="c1"># プライベートなnegative_numbersメソッドに応答する場合</span>
+    <span class="k">class</span> <span class="o">&lt;&lt;</span> <span class="n">set</span>
+      <span class="n">undef_method</span><span class="p">(</span><span class="ss">:count</span><span class="p">)</span>
+    <span class="k">end</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">).</span><span class="nf">to</span> <span class="n">have</span><span class="p">(</span><span class="mi">2</span><span class="p">).</span><span class="nf">negative_numbers</span>
+    <span class="n">expect</span><span class="p">(</span><span class="n">set</span><span class="p">.</span><span class="nf">send</span><span class="p">(</span><span class="ss">:negative_numbers</span><span class="p">).</span><span class="nf">size</span><span class="p">).</span><span class="nf">to</span> <span class="n">eq</span><span class="p">(</span><span class="mi">2</span><span class="p">)</span> <span class="c1"># 等価</span>
+  <span class="k">end</span>
+<span class="k">end</span>
+</code></pre>
+
+<p>これは実際廃止されてもしょうがないよね、と思ってしまうくらいにやり過ぎな挙動だけど、
+皮肉なことにTranspecはそういうものを一掃するためのツールなので、
+これに対処する必要がある。</p>
+
+<p><code>have(n).items</code>マッチャの変換後の形を決めるには、ASTからは得られない以下の情報が必要になる。</p>
+
+<ul>
+<li>テスト対象が<code>size</code>, <code>length</code>, <code>count</code>のいずれかに応答するか</li>
+<li>テスト対象が<code>have(n).items</code>の<code>items</code>部のメソッドに応答するか
+
+<ul>
+<li>応答するのであれば、それはプライベートメソッドか</li>
+</ul></li>
+<li><code>ActiveSupport::Inflector</code>がロードされているか</li>
+</ul>
+
+<h4 id="で、どうする">で、どうする</h4>
+
+<p>この「ASTだけでは情報が足りない」問題は、
+どう考えても単純な静的解析では手に負えない問題で、
+とりあえず初期リリースの段階では考えないことにした。
+衝動ドリブンで開発している時にあまり遠くの問題を見過ぎると、
+失速して完成せずに終わってしまう恐れがある。</p>
+
+<p>一応このとき、
+「最悪、他にスマートな方法がなければ強引にアレをこうすればいけるかも」という案は考えていて、
+最終的にはその方法を使うことになる。</p>
+
+<h2 id="リリースに向けて">リリースに向けて</h2>
+
+<p>といったようないくつかの問題を考えたところで、
+平均的な使い方として1プロジェクトに対して1回使ったら終わりのツールに、
+そこまでの労力をかける意義はあるのか？という疑問もあったのだけど、
+RSpecのシェアを考えれば自分一人がそのくらいの労力をかけるのはアリだと思った。
+もっとマイナーなフレームワークだったらやらなかったかもしれない。</p>
+
+<p><em>つづく</em></p>
+
+<div class="footnotes">
+<hr>
+<ol>
+
+<li id="fn1">
+<p><code>ruby</code>のコマンドラインオプションをいつまで経っても覚えられない&nbsp;<a href="#fnref1" rev="footnote">&#8617;</a></p>
+</li>
+
+<li id="fn2">
+<p>逆に、変換後のソースの見栄えを気にする必要のない、例えば一時的なデバッグコードの挿入などの場合は、AST変換のメリットをフルに享受できる。&nbsp;<a href="#fnref2" rev="footnote">&#8617;</a></p>
+</li>
+
+<li id="fn3">
+<p>厳密には、この場合に欲しい情報は「誰によってその<code>mock</code>メソッドが定義されたか」であり、レシーバーや返り値のクラス名ではないのだけど。&nbsp;<a href="#fnref3" rev="footnote">&#8617;</a></p>
+</li>
+
+<li id="fn4">
+<p>どちらもrspec-mocksの代替として、RSpecに<a href="https://www.relishapp.com/rspec/rspec-core/v/3-0/docs/mock-framework-integration">組み込んで使う</a>ことができる。&nbsp;<a href="#fnref4" rev="footnote">&#8617;</a></p>
+</li>
+
+</ol>
+</div>
+</div></article></main><footer><p class="copyright">&copy; 2013–2014 Yuji Nakayama</p></footer><script src="../../javascripts/all-da39a3ee.js" type="text/javascript"></script><script type="text/javascript">(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+})(window,document,'script','//www.google-analytics.com/analytics.js','ga');
+ga('create', 'UA-42195703-1', 'yujinakayama.me');
+ga('send', 'pageview');</script></body></html>

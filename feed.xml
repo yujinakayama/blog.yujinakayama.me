@@ -1,0 +1,1118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>blog.yujinakayama.me</title>
+  <id>http://blog.yujinakayama.me/</id>
+  <link href="http://blog.yujinakayama.me/"/>
+  <link href="http://blog.yujinakayama.me/feed.xml" rel="self"/>
+  <updated>2014-08-28T00:00:00+09:00</updated>
+  <author>
+    <name>Yuji Nakayama</name>
+  </author>
+  <entry>
+    <title>Transpec 開発記 – 前編</title>
+    <link rel="alternate" href="http://blog.yujinakayama.me/posts/transpec-first/"/>
+    <id>http://blog.yujinakayama.me/posts/transpec-first/</id>
+    <published>2014-08-28T00:00:00+09:00</published>
+    <updated>2014-08-29T23:13:57+09:00</updated>
+    <author>
+      <name>Yuji Nakayama</name>
+    </author>
+    <content type="html">&lt;p&gt;&lt;a href="http://yujinakayama.me/transpec/"&gt;Transpec&lt;/a&gt;という、RSpecの古い記法で書かれたspecを、最新の記法に自動で書き換えるツールを作った。&lt;/p&gt;
+
+&lt;p&gt;最初のバージョン0.0.1をリリースしたのが2013年8月9日なので、すでに一年前になる。
+先日のRSpec 3の正式リリースからもしばらく経って一段落したところだし、
+この辺で一旦振り返って、
+開発中のその時々で何を考えていたのか、忘れてしまう前に長々と残しておくことにする。&lt;/p&gt;
+
+&lt;h2 id="きっかけ"&gt;きっかけ&lt;/h2&gt;
+
+&lt;p&gt;そもそもTranspecを作り始めたきっかけは、
+should記法を使っていた自分のプロジェクトのspecをexpect記法に書き換えようとしたところから。
+これは2013年の7月下旬の話で、まだRSpec 2.99/3.0のベータ版も出ていない頃。&lt;/p&gt;
+
+&lt;p&gt;正直なところexpect記法が導入された当初は違和感があったし、
+更には&lt;a href="http://myronmars.to/n/dev-blog/2013/07/the-plan-for-rspec-3"&gt;The Plan for RSpec 3&lt;/a&gt;も発表され、
+「このままRSpecを使い続けるべきなのか？」と言う気持ちもあった。
+しかし実際他のテストフレームワークを触ってみたり、変更に至った経緯を詳しく追っていくうちに、
+なんだかんだでやっぱりRSpecかなという結論に。
+例え乗り換えるにしても、既存のRSpecを使ったプロジェクトを今すぐ放り投げられる訳でもない。&lt;/p&gt;
+
+&lt;p&gt;また、別ブロジェクトでexpect記法を使っているうちにそっちに慣れてきたこともあって、
+自分のプロジェクトも全部書き換えることにした。&lt;/p&gt;
+
+&lt;p&gt;流石にすべて手作業はしんどいので、
+まずは安直に正規表現のワンライナーで
+&lt;code&gt;find spec -name &amp;#39;*.rb&amp;#39; | xargs perl -i -pe &amp;#39;s/(\w+)\.should/.../g&amp;#39;&lt;/code&gt;&lt;sup id="fnref1"&gt;&lt;a href="#fn1" rel="footnote"&gt;1&lt;/a&gt;&lt;/sup&gt;
+とかやってちまちま変換しようと試みる。
+が、実際やってみると誤変換や変換残りが結構あるし、
+&lt;a href="https://github.com/yujinakayama/transpec#operator-matchers"&gt;演算子マッチャ&lt;/a&gt;がからんできたりもするので、
+ワンライナーでスムーズにやれるレベルではないと認識。&lt;/p&gt;
+
+&lt;p&gt;そもそも正規表現なんて緩い仕組みで複雑なソースコードの書き換えをしようというのが間違っている。
+単なる文字列処理ではなく、
+ちゃんとRubyコードの意味を解釈して変換したいコードを狙い撃つ方がスマートだし、
+正規表現と延々と格闘して消耗するより早い。
+幸い&lt;a href="https://github.com/bbatsov/rubocop"&gt;RuboCop&lt;/a&gt;プロジェクトでの経験から、
+ソースコードのパースによって得られるAST（Abstract Syntax Tree）の扱いと、
+ソース書き換えのノウハウはあったので、
+静的解析ベースの変換ツールを作ってみることにした。
+この時点では自分用のツールで、汎用化するつもりはあまりなかった。&lt;/p&gt;
+
+&lt;h2 id="プロトタイプ"&gt;プロトタイプ&lt;/h2&gt;
+
+&lt;p&gt;思い立ったが吉日、まずはプロトタイプを作った。&lt;/p&gt;
+
+&lt;p&gt;とりあえずは&lt;code&gt;obj.should&lt;/code&gt;から&lt;code&gt;expect(obj).to&lt;/code&gt;への置き換えと、それに伴う演算子マッチャの変換のみで、
+コードはせいぜい200行程度。
+ちなみにこの時のプロジェクト名はExpectizeで、
+その名残が未だに&lt;a href="https://github.com/yujinakayama/transpec/blob/v2.3.7/lib/transpec/syntax/should.rb#L26"&gt;一つのメソッド&lt;/a&gt;として残っている。&lt;/p&gt;
+
+&lt;p&gt;実際にプロトタイプを実行してみると、自分が想像していた以上にうまく変換できていて予想外に感動した。
+何より一気に自動変換された後のdiffを眺めていると、なんかこう、気持ち良いというか、
+まるで人間が書き換えたかのような魔法っぽさがすごい面白かった。
+「お、おお〜、おほ、おほほほほ」とか言いながらニヤニヤしていたと思う。
+これは面白いぞ。単なる退屈な作業の省力化という、マイナスをゼロへ近づけるだけのものでなく、
+本来ネガティブな体験をポジティブなものに変えられる可能性があるというのはデカい。&lt;/p&gt;
+
+&lt;h2 id="モチベーション"&gt;モチベーション&lt;/h2&gt;
+
+&lt;p&gt;というプロトタイプの感触から、汎用化してリリースすることを決めた。
+Transpecの開発に対するモチベーションは他にも色々あったけど、
+常にコアとなっていたのはこの「いかにポジティブな体験にするか」という部分だったように思う。&lt;/p&gt;
+
+&lt;p&gt;どうせやるならshould/expect記法の変換だけでなく、RSpec 3における各種変更もサポートしちゃおう、
+ということでRSpec 3へのアップグレード補助ツールという位置付けを狙うことにした。&lt;/p&gt;
+
+&lt;p&gt;また、決定打となったのはプロトタイプの感触ではあったものの、
+他にもいくつかのモチベーションがあった。&lt;/p&gt;
+
+&lt;h3 id="コミュニティへの還元"&gt;コミュニティへの還元&lt;/h3&gt;
+
+&lt;p&gt;自分が困っている問題は、他にも困っている人がいるはず。
+特にRSpec 3が正式リリースされたら、
+アップグレード作業の面倒くささにコミュニティから不満が噴出するだろうと思った。&lt;/p&gt;
+
+&lt;p&gt;最初のきっかけの時点から、RSpecのコードを読んだりリポジトリをウォッチしたりして、
+RSpecそのものやRSpec 3での変更に関する知見がかなり得られてきていた。
+せっかくだから「RSpec 3へのアップグレードコンプリートガイド」みたいな記事書こうかな、
+と考えたりもした。&lt;/p&gt;
+
+&lt;p&gt;しかし、そのノウハウの大半はアップグレード時の一過性のものだし、
+その知識も地道なアップグレード作業も、即座に価値を産み出すものではない。
+しかも、様々なケースを網羅してどう対処すべきかを緻密に自然言語で書き、
+読者がそれを読み解いて忠実に実行する、
+それって人間の仕事じゃないでしょ。
+ということで、それらのノウハウは可能な限り実行可能なコードに落とし込み、
+誰もが簡単に実行できるようにすることにした。&lt;/p&gt;
+
+&lt;h3 id="rubyにおける実用レベルのコード変換の実現"&gt;Rubyにおける実用レベルのコード変換の実現&lt;/h3&gt;
+
+&lt;p&gt;単なる proof of concept 的な「なんか面白いもの作ってみた」程度のものではなく、
+現実世界に存在する無数のプロジェクトでの利用に耐えうるクオリティのものを実現できるか、
+試してみたかった。&lt;/p&gt;
+
+&lt;p&gt;言語やフレームワークの変更に対して、ソースコードの自動書き換えによって対応した前例としては、
+自分が経験した中ではXcodeによるObjective-CのMRCからARCへの変換や、
+Modern Objective-Cへの変換がある。
+この変換の精度はそこまで完璧ではなかったけれど、
+まあ必要な作業の8割くらいはやってくれたかな？くらいな印象だった、気がする。&lt;/p&gt;
+
+&lt;p&gt;他には、使ったことはないけれど、Python 2のコードをPython 3対応に変換する&lt;a href="https://docs.python.org/2/library/2to3.html"&gt;&lt;code&gt;2to3&lt;/code&gt;&lt;/a&gt;というツールもあるらしい。&lt;/p&gt;
+
+&lt;p&gt;Rubyの世界ではそういう大きな前例は聞いたことがなかったし、
+動的型付け言語であるという時点で（静的解析で得られる情報が少ないため）
+不利なことは否めなかったけど、
+実現できるか？できたとしてコミュニティがどう受け止めるか？
+みたいな好奇心があった。&lt;/p&gt;
+
+&lt;p&gt;とは言っても、Rubyでは全然無理ですなんてことはまず有り得なくて、
+少なくとも7〜8割くらいのケースはカバーできるだろうとは予想していた。
+ただそれ以上の精度に関しては、言語の変更なのかフレームワークの変更なのか、
+また、言語が静的型付けなのか動的型付けなのか、という辺りで大分変わると思うので未知数だった。&lt;/p&gt;
+
+&lt;h2 id="技術的課題"&gt;技術的課題&lt;/h2&gt;
+
+&lt;p&gt;さて、モチベーションが湧いて夢が広がりんぐな構想を巡らせていると、
+色々な課題も浮かび上がってくる。&lt;/p&gt;
+
+&lt;p&gt;人間の仕事ではないので機械にやらせようとは言ったものの、
+ソースコードを正確に書き換えるという行為は、
+機械がやるにはちょっと面倒くさくて、人間がやるには単調過ぎる、
+というような微妙な領域にあると思う。&lt;/p&gt;
+
+&lt;p&gt;ソースの変換処理というのは、大きく以下の三つののフェーズに分けることができて、
+それぞれに問題が見えてきた。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;変換対象の検出&lt;/li&gt;
+&lt;li&gt;どんな形に変換するかの判断&lt;/li&gt;
+&lt;li&gt;書き換え処理&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id="コードスタイルの尊重"&gt;コードスタイルの尊重&lt;/h3&gt;
+
+&lt;p&gt;これは書き換え処理における問題。&lt;/p&gt;
+
+&lt;p&gt;今回Transpecが書き換えるソースコードはspecファイルであり、
+変換後も人間がメンテナンスしていくものである。
+そんなソースに対して、
+変換前のコードスタイルを完全に無視して違和感バリバリのコードを生成するような、
+おざなりな仕事をするツールは自分がユーザーだったら使いたくない。&lt;/p&gt;
+
+&lt;p&gt;という訳で、なるべく既存のコードスタイルを活かした変換をしたい。
+もちろん、不正なコードを出力しないという大前提と共に。
+さてどうすんのという話だけど、これについては銀の弾丸はない。&lt;/p&gt;
+
+&lt;p&gt;Transpecが行うのは、RSpecの等価なAPI間の変換である。
+その等価なAPI — 例えば&lt;code&gt;obj.should&lt;/code&gt;と&lt;code&gt;expect(obj).to&lt;/code&gt; — というのは、
+RSpecという単なる1フレームワークがRubyレイヤーの上に作り上げたものに過ぎず、
+Rubyのレベルで見ると変換前後でのプログラムの意味は等価ではなくなる。
+プログラムの意味が変わるということは、つまりASTの構造も変わる。&lt;/p&gt;
+
+&lt;p&gt;そもそもASTって何なのという話だけど、&lt;a href="http://ja.wikipedia.org/wiki/抽象構文木"&gt;Wikipedia&lt;/a&gt;によると、&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;抽象構文木（abstract syntax tree、AST）とは、通常の構文木（具象構文木、あるいはparse treeとも言う）から、言語の意味に関係ない情報を取り除き、意味に関係ある情報のみを取り出した（抽象した）木構造のデータ構造である。&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;p&gt;らしい。
+これは要するに、ASTはプログラムの意味を解析するのに便利なデータ構造であり、
+その上でノイズにしかならない、ソースコード上での見栄えに関する情報を取り除いたもの、ということ。&lt;/p&gt;
+
+&lt;p&gt;例えば「&lt;code&gt;if&lt;/code&gt;文の中で&lt;code&gt;puts&lt;/code&gt;メソッドで文字列&lt;code&gt;&amp;quot;foo&amp;quot;&lt;/code&gt;を出力している処理」を検出したいという要求があった場合、
+こういうコードも、&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight ruby"&gt;&lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;some_condition&lt;/span&gt;
+  &lt;span class="nb"&gt;puts&lt;/span&gt; &lt;span class="s1"&gt;'foo'&lt;/span&gt;
+&lt;span class="k"&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;こんなコードも、&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight ruby"&gt;&lt;span class="nb"&gt;puts&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s2"&gt;"foo"&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="k"&gt;if&lt;/span&gt; &lt;span class="n"&gt;some_condition&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;ソースコード上での形は違うが、プログラムとしての意味は全く同じなので、これらを等価に扱える必要がある。&lt;/p&gt;
+
+&lt;p&gt;もしソースコードを文字列としてそのまま解析するのであれば、
+そんな処理を実装するのは気が遠くなる話だけど、
+そんな気が遠くなることを代わりにやってくれるパーサーという有り難い存在がある。
+パーサーは入力としてソースコードを受け取り、出力としてASTなどのデータを吐き出す。
+上記の2つの例をパースして得られるASTは、なんと両方とも以下の構造になる。
+これは&lt;a href="https://github.com/whitequark/parser"&gt;Parser&lt;/a&gt;によって生成されたASTをS式で表現したもので、
+実際には木構造になっている。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight plaintext"&gt;(if
+  (send nil :some_condition)
+  (send nil :puts
+    (str "foo")) nil)
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;つまり、ASTだけを見ればソースコード上の細かな違いを気にせず、意味の解析に集中できる。
+超便利。&lt;/p&gt;
+
+&lt;p&gt;さて、話をソースの書き換えに戻すと、プログラムの意味を変えるソース変換の一つの方法として、
+ソースを文字列として操作するのではなく、
+元のソースから得られたASTの構造を組み替え（AST変換）、
+その組み替えられたASTから意味的に等価になるソースを自動生成するという方法がある。&lt;/p&gt;
+
+&lt;p&gt;&lt;img alt="AST Transformation" src="ast_transformation-c94d4cfa.svg" /&gt;&lt;/p&gt;
+
+&lt;p&gt;この方法を使えば、ASTだけを見れば良いので変換のロジックはシンプルになるし、
+少なくともRubyレベルで不正なソースコードを吐き出すことはなくなる。&lt;/p&gt;
+
+&lt;p&gt;しかし前述の通り、ASTはソースコード上の見栄えに関する情報が失われているため、
+ASTから生成されたソースには、元のソースのスタイルが全く反映されない&lt;sup id="fnref2"&gt;&lt;a href="#fn2" rel="footnote"&gt;2&lt;/a&gt;&lt;/sup&gt;。&lt;/p&gt;
+
+&lt;p&gt;ということでここまで長々と書いたけど、Transpecではこの方法は使っていない。
+代わりに、ParserのASTは元のソースへのロケーションマップ情報を持っているので、
+それを参照しながら地道に文字列操作をすることにした。
+つまりロケーションマップという補助的な情報はあるけれど、
+結局は原始的な文字列操作なので、
+変換対象の周囲のコードに配慮をしないと不正なコードを出力してしまう可能性はある。&lt;/p&gt;
+
+&lt;p&gt;世の中には、Rubyの構文の自由度の高さを活かした変態的なコードを書く人もいるけど、
+そんな未知のコードであろうが、Rubyとして正しく、RSpecのAPIを正しく使っている限り、
+なるべく正常に変換できるようにしたい。
+これについては結局、テストケースを充実させながら地道に実装していくしかないという結論に。&lt;/p&gt;
+
+&lt;h3 id="astだけでは情報が足りない"&gt;ASTだけでは情報が足りない&lt;/h3&gt;
+
+&lt;p&gt;これは、変換対象の検出と、どんな形に変換するかの判断に関わる問題。&lt;/p&gt;
+
+&lt;h4 id="インターフェースが似ている同名のメソッドを見分けられない"&gt;インターフェースが似ている同名のメソッドを見分けられない&lt;/h4&gt;
+
+&lt;p&gt;例えば、今回Transpecが変換対象とする、&lt;code&gt;mock&lt;/code&gt;と&lt;code&gt;stub&lt;/code&gt;というRSpec 3で廃止されたメソッドがある。
+これは&lt;code&gt;double&lt;/code&gt;の単純なaliasであり、
+書き換え処理としては&lt;code&gt;mock&lt;/code&gt;というメソッド名を&lt;code&gt;double&lt;/code&gt;に置換するだけで良い。&lt;/p&gt;
+
+&lt;p&gt;が、それはその&lt;code&gt;mock&lt;/code&gt;が本当にRSpecによって定義された&lt;code&gt;mock&lt;/code&gt;であればの話。&lt;/p&gt;
+
+&lt;p&gt;例えばこんな&lt;code&gt;mock&lt;/code&gt;呼び出しがあったとき、&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight ruby"&gt;  &lt;span class="n"&gt;it&lt;/span&gt; &lt;span class="s1"&gt;'is an object'&lt;/span&gt; &lt;span class="k"&gt;do&lt;/span&gt;
+    &lt;span class="n"&gt;book&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;mock&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;'book'&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;book&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;should&lt;/span&gt; &lt;span class="n"&gt;be_an&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="no"&gt;Object&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+  &lt;span class="k"&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;これはRSpecの&lt;code&gt;mock&lt;/code&gt;だろうか？&lt;code&gt;double&lt;/code&gt;に変換して良いだろうか？
+それはASTを見てもわからない。&lt;/p&gt;
+
+&lt;p&gt;上記のソースコードから得られるASTの中で、
+コード片&lt;code&gt;mock(&amp;#39;book&amp;#39;)&lt;/code&gt;に対応するノードは以下の形になる。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight plaintext"&gt;(send nil :mock
+  (str "book"))
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Rubyは動的型付け言語なので、静的に得られたデータであるASTに型情報はない&lt;sup id="fnref3"&gt;&lt;a href="#fn3" rel="footnote"&gt;3&lt;/a&gt;&lt;/sup&gt;。
+このASTからわかるのは、
+それがメソッド呼び出しであり、レシーバーは省略されていて、メソッド名は&lt;code&gt;mock&lt;/code&gt;で、
+文字列リテラル&lt;code&gt;&amp;quot;book&amp;quot;&lt;/code&gt;を引数として渡している、ということだけ。&lt;/p&gt;
+
+&lt;p&gt;この呼び出し方であれば、
+&lt;a href="http://rubydoc.info/gems/mocha/Mocha/API#mock-instance_method"&gt;Mochaの&lt;code&gt;mock&lt;/code&gt;&lt;/a&gt;であってもおかしくないし、
+&lt;a href="https://github.com/rr/rr/tree/v1.1.2#mocks"&gt;RRの&lt;code&gt;mock&lt;/code&gt;&lt;/a&gt;の可能性もある&lt;sup id="fnref4"&gt;&lt;a href="#fn4" rel="footnote"&gt;4&lt;/a&gt;&lt;/sup&gt;。
+もしくはユーザーが自分で定義したヘルパーメソッドかもしれない。
+当然それらを間違って&lt;code&gt;double&lt;/code&gt;に変換してしまうと、specが壊れる。&lt;/p&gt;
+
+&lt;p&gt;結局のところ、ASTのみを頼りに変換対象のメソッドを探す場合、使える情報としては&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;メソッド名のユニークさ&lt;/li&gt;
+&lt;li&gt;レシーバーを取るかどうか&lt;/li&gt;
+&lt;li&gt;引数の数&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;程度の、割とゆるい情報しかないという問題がある。&lt;/p&gt;
+
+&lt;p&gt;流石に&lt;code&gt;should&lt;/code&gt;という名前のメソッドが自前で定義されている、というケースはあまりなさそうだけど、
+上記の&lt;code&gt;mock&lt;/code&gt;とか、&lt;code&gt;stub&lt;/code&gt;なんかは結構他のフレームワークとかぶっていたりする。
+また&lt;code&gt;example&lt;/code&gt;というメソッドは、RSpec内だけでも2つ存在している上に、
+普遍的な名前過ぎてユーザーのヘルパーメソッドや&lt;code&gt;let&lt;/code&gt;によって不意にオーバーライドされてしまっていることがある。&lt;/p&gt;
+
+&lt;h4 id="どんな形に変換するべきか判断できない"&gt;どんな形に変換するべきか判断できない&lt;/h4&gt;
+
+&lt;p&gt;もう一つの例として、RSpec 3で廃止された&lt;code&gt;have(n).items&lt;/code&gt;マッチャというものがある。
+これはテスト対象オブジェクトの性質によってその挙動を変える、
+やり過ぎ感あふれるマッチャだったりする。&lt;/p&gt;
+
+&lt;p&gt;以下、その挙動のバリエーション。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight ruby"&gt;&lt;span class="k"&gt;class&lt;/span&gt; &lt;span class="nc"&gt;NumberSet&lt;/span&gt;
+  &lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;initialize&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="o"&gt;*&lt;/span&gt;&lt;span class="n"&gt;numbers&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="vi"&gt;@numbers&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;numbers&lt;/span&gt;
+  &lt;span class="k"&gt;end&lt;/span&gt;
+
+  &lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;count&lt;/span&gt;
+    &lt;span class="vi"&gt;@numbers&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;size&lt;/span&gt;
+  &lt;span class="k"&gt;end&lt;/span&gt;
+
+  &lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;odd_numbers&lt;/span&gt;
+    &lt;span class="vi"&gt;@numbers&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;select&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&lt;/span&gt;&lt;span class="ss"&gt;:odd?&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+  &lt;span class="k"&gt;end&lt;/span&gt;
+
+  &lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;even_numbers&lt;/span&gt;
+    &lt;span class="vi"&gt;@numbers&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;select&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="o"&gt;&amp;amp;&lt;/span&gt;&lt;span class="ss"&gt;:even?&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+  &lt;span class="k"&gt;end&lt;/span&gt;
+
+  &lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;numbers_more_than&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;threshold&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="vi"&gt;@numbers&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;select&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="o"&gt;|&lt;/span&gt;&lt;span class="n"&gt;number&lt;/span&gt;&lt;span class="o"&gt;|&lt;/span&gt; &lt;span class="n"&gt;number&lt;/span&gt; &lt;span class="o"&gt;&amp;gt;&lt;/span&gt; &lt;span class="n"&gt;threshold&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+  &lt;span class="k"&gt;end&lt;/span&gt;
+
+  &lt;span class="kp"&gt;private&lt;/span&gt;
+
+  &lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;negative_numbers&lt;/span&gt;
+    &lt;span class="vi"&gt;@numbers&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;select&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="o"&gt;|&lt;/span&gt;&lt;span class="n"&gt;number&lt;/span&gt;&lt;span class="o"&gt;|&lt;/span&gt; &lt;span class="n"&gt;number&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt; &lt;span class="mi"&gt;0&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+  &lt;span class="k"&gt;end&lt;/span&gt;
+&lt;span class="k"&gt;end&lt;/span&gt;
+
+&lt;span class="n"&gt;describe&lt;/span&gt; &lt;span class="s1"&gt;'have(n).items'&lt;/span&gt; &lt;span class="k"&gt;do&lt;/span&gt;
+  &lt;span class="n"&gt;let&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="ss"&gt;:set&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="no"&gt;NumberSet&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;new&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="mi"&gt;7&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="o"&gt;-&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="mi"&gt;5&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+
+  &lt;span class="n"&gt;it&lt;/span&gt; &lt;span class="s1"&gt;'is complicated'&lt;/span&gt; &lt;span class="k"&gt;do&lt;/span&gt;
+    &lt;span class="c1"&gt;# テスト対象が、末尾のitems部と同名のメソッドに応答せず、&lt;/span&gt;
+    &lt;span class="c1"&gt;# size, length, countいずれかのメソッドに応答する場合&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;have&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;5&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;items&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;have&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;5&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;numbers&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;have&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;5&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;qawsedrftgyhujikolp&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;count&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;eq&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;5&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="c1"&gt;# 等価&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# テスト対象がodd_numbersメソッドに応答する場合&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;have&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;4&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;odd_numbers&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;odd_numbers&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;size&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;eq&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;4&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="c1"&gt;# 等価&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# ActiveSupport::Inflectorがロードされていない場合&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt;
+      &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;have&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;even_number&lt;/span&gt; &lt;span class="c1"&gt;# Fail&lt;/span&gt;
+    &lt;span class="p"&gt;}.&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;raise_error&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="no"&gt;RSpec&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="no"&gt;Expectations&lt;/span&gt;&lt;span class="o"&gt;::&lt;/span&gt;&lt;span class="no"&gt;ExpectationNotMetError&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;have&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;even_numbers&lt;/span&gt;  &lt;span class="c1"&gt;# Pass&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# ActiveSupport::Inflectorがロードされている場合&lt;/span&gt;
+    &lt;span class="nb"&gt;require&lt;/span&gt; &lt;span class="s1"&gt;'active_support/inflector'&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;have&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;even_number&lt;/span&gt;   &lt;span class="c1"&gt;# Pass&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;have&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;even_numbers&lt;/span&gt;  &lt;span class="c1"&gt;# Pass&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;even_numbers&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;size&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;eq&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="c1"&gt;# 等価&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# 引数が渡された場合&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;have&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;numbers_more_than&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;numbers_more_than&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;size&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;eq&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="c1"&gt;# 等価&lt;/span&gt;
+
+    &lt;span class="c1"&gt;# テスト対象がsize, length, countいずれにも応答せず、&lt;/span&gt;
+    &lt;span class="c1"&gt;# プライベートなnegative_numbersメソッドに応答する場合&lt;/span&gt;
+    &lt;span class="k"&gt;class&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&amp;lt;&lt;/span&gt; &lt;span class="n"&gt;set&lt;/span&gt;
+      &lt;span class="n"&gt;undef_method&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="ss"&gt;:count&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+    &lt;span class="k"&gt;end&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;have&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;negative_numbers&lt;/span&gt;
+    &lt;span class="n"&gt;expect&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;set&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;send&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="ss"&gt;:negative_numbers&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;size&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;eq&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="c1"&gt;# 等価&lt;/span&gt;
+  &lt;span class="k"&gt;end&lt;/span&gt;
+&lt;span class="k"&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;これは実際廃止されてもしょうがないよね、と思ってしまうくらいにやり過ぎな挙動だけど、
+皮肉なことにTranspecはそういうものを一掃するためのツールなので、
+これに対処する必要がある。&lt;/p&gt;
+
+&lt;p&gt;&lt;code&gt;have(n).items&lt;/code&gt;マッチャの変換後の形を決めるには、ASTからは得られない以下の情報が必要になる。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;テスト対象が&lt;code&gt;size&lt;/code&gt;, &lt;code&gt;length&lt;/code&gt;, &lt;code&gt;count&lt;/code&gt;のいずれかに応答するか&lt;/li&gt;
+&lt;li&gt;テスト対象が&lt;code&gt;have(n).items&lt;/code&gt;の&lt;code&gt;items&lt;/code&gt;部のメソッドに応答するか
+
+&lt;ul&gt;
+&lt;li&gt;応答するのであれば、それはプライベートメソッドか&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;ActiveSupport::Inflector&lt;/code&gt;がロードされているか&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h4 id="で、どうする"&gt;で、どうする&lt;/h4&gt;
+
+&lt;p&gt;この「ASTだけでは情報が足りない」問題は、
+どう考えても単純な静的解析では手に負えない問題で、
+とりあえず初期リリースの段階では考えないことにした。
+衝動ドリブンで開発している時にあまり遠くの問題を見過ぎると、
+失速して完成せずに終わってしまう恐れがある。&lt;/p&gt;
+
+&lt;p&gt;一応このとき、
+「最悪、他にスマートな方法がなければ強引にアレをこうすればいけるかも」という案は考えていて、
+最終的にはその方法を使うことになる。&lt;/p&gt;
+
+&lt;h2 id="リリースに向けて"&gt;リリースに向けて&lt;/h2&gt;
+
+&lt;p&gt;といったようないくつかの問題を考えたところで、
+平均的な使い方として1プロジェクトに対して1回使ったら終わりのツールに、
+そこまでの労力をかける意義はあるのか？という疑問もあったのだけど、
+RSpecのシェアを考えれば自分一人がそのくらいの労力をかけるのはアリだと思った。
+もっとマイナーなフレームワークだったらやらなかったかもしれない。&lt;/p&gt;
+
+&lt;p&gt;&lt;em&gt;つづく&lt;/em&gt;&lt;/p&gt;
+
+&lt;div class="footnotes"&gt;
+&lt;hr&gt;
+&lt;ol&gt;
+
+&lt;li id="fn1"&gt;
+&lt;p&gt;&lt;code&gt;ruby&lt;/code&gt;のコマンドラインオプションをいつまで経っても覚えられない&amp;nbsp;&lt;a href="#fnref1" rev="footnote"&gt;&amp;#8617;&lt;/a&gt;&lt;/p&gt;
+&lt;/li&gt;
+
+&lt;li id="fn2"&gt;
+&lt;p&gt;逆に、変換後のソースの見栄えを気にする必要のない、例えば一時的なデバッグコードの挿入などの場合は、AST変換のメリットをフルに享受できる。&amp;nbsp;&lt;a href="#fnref2" rev="footnote"&gt;&amp;#8617;&lt;/a&gt;&lt;/p&gt;
+&lt;/li&gt;
+
+&lt;li id="fn3"&gt;
+&lt;p&gt;厳密には、この場合に欲しい情報は「誰によってその&lt;code&gt;mock&lt;/code&gt;メソッドが定義されたか」であり、レシーバーや返り値のクラス名ではないのだけど。&amp;nbsp;&lt;a href="#fnref3" rev="footnote"&gt;&amp;#8617;&lt;/a&gt;&lt;/p&gt;
+&lt;/li&gt;
+
+&lt;li id="fn4"&gt;
+&lt;p&gt;どちらもrspec-mocksの代替として、RSpecに&lt;a href="https://www.relishapp.com/rspec/rspec-core/v/3-0/docs/mock-framework-integration"&gt;組み込んで使う&lt;/a&gt;ことができる。&amp;nbsp;&lt;a href="#fnref4" rev="footnote"&gt;&amp;#8617;&lt;/a&gt;&lt;/p&gt;
+&lt;/li&gt;
+
+&lt;/ol&gt;
+&lt;/div&gt;
+</content>
+  </entry>
+  <entry>
+    <title>FBSnapshotTestCaseでUIViewの描画をテストする</title>
+    <link rel="alternate" href="http://blog.yujinakayama.me/posts/testing-uiview-drawing-with-fbsnapshottestcase/"/>
+    <id>http://blog.yujinakayama.me/posts/testing-uiview-drawing-with-fbsnapshottestcase/</id>
+    <published>2014-02-14T23:00:00+09:00</published>
+    <updated>2014-08-21T00:31:20+09:00</updated>
+    <author>
+      <name>Yuji Nakayama</name>
+    </author>
+    <content type="html">&lt;p&gt;先日、iOS 7のMusic.app内の再生状態インジケータのクローンなビュー、&lt;a href="https://github.com/yujinakayama/NAKPlaybackIndicatorView"&gt;&lt;code&gt;NAKPlaybackIndicatorView&lt;/code&gt;&lt;/a&gt;を作りました。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/music_app.png" width="320" height="150" alt="Music.app" /&gt;&lt;/p&gt;
+
+&lt;p&gt;このプロジェクトでは、ビューが期待通りに描画できているかのテストに&lt;code&gt;FBSnapshotTestCase&lt;/code&gt;というものを使っています。&lt;/p&gt;
+
+&lt;h2 id="fbsnapshottestcaseとは"&gt;FBSnapshotTestCaseとは&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href="https://github.com/facebook/ios-snapshot-test-case"&gt;&lt;code&gt;FBSnapshotTestCase&lt;/code&gt;&lt;/a&gt;は、
+Facebookによる、ビューの“snapshot test”ライブラリです。
+“snapshot test”とは、テスト対象の&lt;code&gt;UIView&lt;/code&gt;または&lt;code&gt;CALayer&lt;/code&gt;に表示されたコンテンツのスナップショットを撮り、
+事前に用意しておいた“reference image”（PNG画像）と同一かどうかをピクセルレベルでチェックすることで、
+将来の予期しない表示崩れを検出するものです。&lt;/p&gt;
+
+&lt;p&gt;&lt;code&gt;FBSnapshotTestCase&lt;/code&gt;は&lt;code&gt;XCTestCase&lt;/code&gt;のサブクラスであり、snapshot test用のヘルパーメソッドやマクロを追加した程度のものなので、
+特にsnapshot testでない通常のテストを実行することも可能です。&lt;/p&gt;
+
+&lt;p&gt;蛇足ですが、
+「ビューの表面に関わる」テストというと
+&lt;a href="https://github.com/kif-framework/KIF"&gt;KIF&lt;/a&gt;
+や
+&lt;a href="http://www.testingwithfrank.com"&gt;Frank&lt;/a&gt;
+などによるエンドツーエンドが一瞬連想されますが、
+これらはUIを介してアプリ全体の機能をテストするものであり、
+単体のビューの描画内容をテストするsnapshot testとは別物です。&lt;/p&gt;
+
+&lt;h2 id="使い方"&gt;使い方&lt;/h2&gt;
+
+&lt;h3 id="インストール"&gt;インストール&lt;/h3&gt;
+
+&lt;p&gt;&lt;a href="http://cocoapods.org"&gt;CocoaPods&lt;/a&gt;でインストールが可能です。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight ruby"&gt;&lt;span class="c1"&gt;# Podfile&lt;/span&gt;
+
+&lt;span class="n"&gt;target&lt;/span&gt; &lt;span class="s1"&gt;'MyProjectTests'&lt;/span&gt; &lt;span class="k"&gt;do&lt;/span&gt;
+  &lt;span class="n"&gt;pod&lt;/span&gt; &lt;span class="s1"&gt;'FBSnapshotTestCase'&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s1"&gt;'~&amp;gt; 1.0'&lt;/span&gt;
+&lt;span class="k"&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id="reference-imageファイルを置くディレクトリのパスを設定する"&gt;Reference Imageファイルを置くディレクトリのパスを設定する&lt;/h3&gt;
+
+&lt;p&gt;Reference imageを保存するディレクトリのパスを、プリプロセッサマクロ&lt;code&gt;FB_REFERENCE_IMAGE_DIR&lt;/code&gt;で定義します。&lt;/p&gt;
+
+&lt;p&gt;公式には以下の記述をxcconfigファイルに追加する&lt;a href="https://github.com/facebook/ios-snapshot-test-case/blob/1.0/FBSnapshotTestCase.h#L11-L13"&gt;例&lt;/a&gt;が挙げられています。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight plaintext"&gt;GCC_PREPROCESSOR_DEFINITIONS = $(inherited) FB_REFERENCE_IMAGE_DIR="\"$(SOURCE_ROOT)/$(PROJECT_NAME)Tests/ReferenceImages\""
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;しかし今回はCocoaPodsによって既にxcconfigファイルが自動生成されてしまっており、
+ここに手動で設定を追加するのはメンテナンス性に欠けるため、プロジェクトそのもののBuild Settingsに設定を追加することにします。
+以下のように、テストターゲットの &lt;strong&gt;Build Settings&lt;/strong&gt; 内、 &lt;strong&gt;Preprosessor Macros&lt;/strong&gt; に&lt;code&gt;FB_REFERENCE_IMAGE_DIR=&amp;quot;\&amp;quot;$(SOURCE_ROOT)/$(PROJECT_NAME)Tests/ReferenceImages\&amp;quot;&amp;quot;&lt;/code&gt;を追加します。テストターゲットのファイル群を入れているディレクトリ名をXcodeデフォルトの&lt;code&gt;$(PROJECT_NAME)Tests&lt;/code&gt;から変更している場合は、パス中のその部分を合わせます。また、ソース内への展開時に&lt;a href="https://github.com/facebook/ios-snapshot-test-case/blob/1.0/FBSnapshotTestCase.h#L24"&gt;Cの文字列リテラルになる必要がある&lt;/a&gt;ことに注意して下さい。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/fb_reference_image_dir.png" alt="FB_REFERENCE_IMAGE_DIR" /&gt;&lt;/p&gt;
+
+&lt;p&gt;ちなみにこの例ではXcodeのビルド設定&lt;code&gt;SOURCE_ROOT&lt;/code&gt;や&lt;code&gt;PROJECT_NAME&lt;/code&gt;の値を参照しているため、
+ソース内で&lt;code&gt;#define&lt;/code&gt;してもこれらは展開されません。&lt;/p&gt;
+
+&lt;h3 id="テストケースクラスを準備する"&gt;テストケースクラスを準備する&lt;/h3&gt;
+
+&lt;p&gt;既存の&lt;code&gt;XCTestCase&lt;/code&gt;なテストのスーパークラスを&lt;code&gt;FBSnapshotTestCase&lt;/code&gt;に変えるか、
+新しく&lt;code&gt;FBSnapshotTestCase&lt;/code&gt;を継承したクラスを作成します。&lt;/p&gt;
+
+&lt;p&gt;その後、&lt;code&gt;-setUp&lt;/code&gt;メソッド内に&lt;code&gt;self.recordMode = NO;&lt;/code&gt;（詳細は後述）を加えます。&lt;/p&gt;
+
+&lt;p&gt;雛形としては以下のような形になります。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight objective_c"&gt;&lt;span class="cp"&gt;#import &amp;lt;XCTest/XCTest.h&amp;gt;
+#import &amp;lt;FBSnapshotTestCase/FBSnapshotTestCase.h&amp;gt;
+&lt;/span&gt;
+&lt;span class="k"&gt;@interface&lt;/span&gt; &lt;span class="nc"&gt;SnapshotTests&lt;/span&gt; &lt;span class="p"&gt;:&lt;/span&gt; &lt;span class="nc"&gt;FBSnapshotTestCase&lt;/span&gt;
+&lt;span class="k"&gt;@end&lt;/span&gt;
+
+&lt;span class="k"&gt;@implementation&lt;/span&gt; &lt;span class="nc"&gt;SnapshotTests&lt;/span&gt;
+
+&lt;span class="k"&gt;-&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;&lt;span class="n"&gt;setUp&lt;/span&gt;
+&lt;span class="p"&gt;{&lt;/span&gt;
+    &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;super&lt;/span&gt; &lt;span class="nf"&gt;setUp&lt;/span&gt;&lt;span class="p"&gt;];&lt;/span&gt;
+    &lt;span class="n"&gt;self&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;recordMode&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="nb"&gt;NO&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+
+&lt;span class="k"&gt;@end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id="テストを書く"&gt;テストを書く&lt;/h3&gt;
+
+&lt;p&gt;通常の&lt;code&gt;XCTestCase&lt;/code&gt;のテストと同様に、&lt;code&gt;test&lt;/code&gt;で始まるメソッド内にテストを記述します。&lt;/p&gt;
+
+&lt;p&gt;テスト対象となるビューを用意し、スナップショットを撮りたい状態にしたら、&lt;code&gt;FBSnapshotVerifyView&lt;/code&gt;マクロにビューを渡します。
+ここでは、&lt;code&gt;UILabel&lt;/code&gt;によってテキストがちゃんと描画されるかテストすることにします。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight objective_c"&gt;&lt;span class="k"&gt;-&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;&lt;span class="n"&gt;testLabel&lt;/span&gt;
+&lt;span class="p"&gt;{&lt;/span&gt;
+    &lt;span class="n"&gt;UILabel&lt;/span&gt; &lt;span class="o"&gt;*&lt;/span&gt;&lt;span class="n"&gt;label&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;[[&lt;/span&gt;&lt;span class="n"&gt;UILabel&lt;/span&gt; &lt;span class="nf"&gt;alloc&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="nf"&gt;initWithFrame&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="n"&gt;CGRectZero&lt;/span&gt;&lt;span class="p"&gt;];&lt;/span&gt;
+    &lt;span class="n"&gt;label&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;text&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s"&gt;@"Foo"&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+    &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;label&lt;/span&gt; &lt;span class="nf"&gt;sizeToFit&lt;/span&gt;&lt;span class="p"&gt;];&lt;/span&gt;
+    &lt;span class="n"&gt;FBSnapshotVerifyView&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;label&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="nb"&gt;nil&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;さて、ここで &lt;strong&gt;⌘U&lt;/strong&gt; でテストを実行してみましょう。
+現在のバージョン1.0.0では実機でのテストはサポートされていないので、シミュレータで実行します。
+すると以下のようなエラーでテストが失敗します。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight plaintext"&gt;...
+Snapshot comparison failed:
+Error Domain=FBTestSnapshotControllerErrorDomain
+Code=1 "Unable to load reference image."
+UserInfo=0xa849a70 {NSLocalizedFailureReason=Reference image not found. You need to run the test in record mode,
+...
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;Reference imageが無いと言われています。当然です。まだ用意していません。&lt;/p&gt;
+
+&lt;p&gt;しかし、実はreference imageを自前で用意する必要は基本的にありません。
+前述の&lt;code&gt;self.recordMode&lt;/code&gt;を&lt;code&gt;YES&lt;/code&gt;にしてテストを実行すると、
+&lt;code&gt;FBSnapshotVerifyView&lt;/code&gt;マクロは常に成功し、
+現在のビューのスナップショットをreference imageとして保存するようになります。
+逆に言えばテストをしなくなるので、&lt;code&gt;self.recordMode = YES;&lt;/code&gt;の状態で
+Gitなどのバージョン管理システムにコミットしてはいけません。&lt;/p&gt;
+
+&lt;p&gt;さて、実際に&lt;code&gt;self.recordMode = YES;&lt;/code&gt;に変更してテストを実行してみるとパスするはずです。
+その後&lt;code&gt;git status&lt;/code&gt;をしてみると、
+&lt;code&gt;MyProjectTests/ReferenceImages/SnapshotTests/testLabel@2x.png&lt;/code&gt;のようなファイルが生成されており、
+&lt;code&gt;Preview.app&lt;/code&gt;なりで開いてみると以下のような内容になっているのが確認できます。&lt;/p&gt;
+
+&lt;p&gt;&lt;img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/testLabel@2x.png" width="30" height="21" alt="Foo" class="border" /&gt;&lt;/p&gt;
+
+&lt;p&gt;適切に表示されているのが確認できたら&lt;code&gt;self.recordMode = NO;&lt;/code&gt;に戻し、もう一度テストを実行してパスすることを確認します。
+その後、テストファイルと生成された画像ファイルをコミットします。&lt;/p&gt;
+
+&lt;p&gt;これによって今後、ビューがこの画像と同一の内容を描画するかどうかがチェックされることになります。
+一度目視確認してしまえば、後はずっと自動化してくれる訳ですね。&lt;/p&gt;
+
+&lt;p&gt;ここまでが基本的なワークフローになります。&lt;/p&gt;
+
+&lt;ol&gt;
+&lt;li&gt;テストを書く&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;self.recordMode = YES;&lt;/code&gt;でテストを実行する&lt;/li&gt;
+&lt;li&gt;生成された画像を目視で確認する
+
+&lt;ul&gt;
+&lt;li&gt;画像の内容が適切であれば&lt;code&gt;self.recordMode = NO;&lt;/code&gt;に戻し、画像と一緒にコミットする&lt;/li&gt;
+&lt;li&gt;画像の内容が意図したものでない場合は、意図した表示になるまでビューの実装側のコードを修正、テスト実行（画像生成）、目視確認を繰り返す&lt;/li&gt;
+&lt;/ul&gt;&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h3 id="テストの失敗"&gt;テストの失敗&lt;/h3&gt;
+
+&lt;p&gt;Reference imageがちゃんと用意されているテストが失敗すると、
+Xcodeのコンソールに以下のようなログが表示されます。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight plaintext"&gt;If you have Kaleidoscope installed you can run this command to see an image diff:
+ksdiff "/Users/me/Library/Application Support/iPhone Simulator/7.0.3/Applications/66392008-F6EB-4C2C-BAE8-90977D37893A/tmp/SnapshotTests/reference_testLabel@2x.png" "/Users/me/Library/Application Support/iPhone Simulator/7.0.3/Applications/66392008-F6EB-4C2C-BAE8-90977D37893A/tmp/SnapshotTests/failed_testLabel@2x.png"
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;この&lt;code&gt;ksdiff&lt;/code&gt;の行をターミナルで実行すると、
+GUI diffツールの&lt;a href="http://www.kaleidoscopeapp.com/"&gt;Kaleidoscope&lt;/a&gt;（有償）で画像の差分が確認できます。
+Kaleidoscopeを持っていない場合は、&lt;code&gt;failed_xxx.png&lt;/code&gt;の方のファイルを開けば失敗した画像を確認できます。&lt;/p&gt;
+
+&lt;h2 id="tips"&gt;Tips&lt;/h2&gt;
+
+&lt;h3 id="reference-imageのパス"&gt;Reference Imageのパス&lt;/h3&gt;
+
+&lt;p&gt;Reference imageは、&lt;code&gt;FB_REFERENCE_IMAGE_DIR&lt;/code&gt;以下に&lt;code&gt;テストケースクラス名/テストメソッド名.png&lt;/code&gt;で保存されます。
+また、&lt;code&gt;FBSnapshotVerifyView&lt;/code&gt;の第2引数に適当な識別子となる&lt;code&gt;NSString&lt;/code&gt;を渡すと、それがファイル名に追加されます。
+一つのテストメソッド内で複数回&lt;code&gt;FBSnapshotVerifyView&lt;/code&gt;を使う場合に有効です。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight objective_c"&gt;&lt;span class="k"&gt;-&lt;/span&gt; &lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="kt"&gt;void&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;&lt;span class="n"&gt;testLabel&lt;/span&gt;
+&lt;span class="p"&gt;{&lt;/span&gt;
+    &lt;span class="n"&gt;UILabel&lt;/span&gt; &lt;span class="o"&gt;*&lt;/span&gt;&lt;span class="n"&gt;label&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="p"&gt;[[&lt;/span&gt;&lt;span class="n"&gt;UILabel&lt;/span&gt; &lt;span class="nf"&gt;alloc&lt;/span&gt;&lt;span class="p"&gt;]&lt;/span&gt; &lt;span class="nf"&gt;initWithFrame&lt;/span&gt;&lt;span class="p"&gt;:&lt;/span&gt;&lt;span class="n"&gt;CGRectZero&lt;/span&gt;&lt;span class="p"&gt;];&lt;/span&gt;
+
+    &lt;span class="n"&gt;label&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;text&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s"&gt;@"Foo"&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+    &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;label&lt;/span&gt; &lt;span class="nf"&gt;sizeToFit&lt;/span&gt;&lt;span class="p"&gt;];&lt;/span&gt;
+    &lt;span class="n"&gt;FBSnapshotVerifyView&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;label&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s"&gt;@"foo"&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+    &lt;span class="c1"&gt;// MyProjectTests/ReferenceImages/SnapshotTests/testLabel_foo@2x.png
+&lt;/span&gt;
+    &lt;span class="n"&gt;label&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="n"&gt;text&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s"&gt;@"Bar"&lt;/span&gt;&lt;span class="p"&gt;;&lt;/span&gt;
+    &lt;span class="p"&gt;[&lt;/span&gt;&lt;span class="n"&gt;label&lt;/span&gt; &lt;span class="nf"&gt;sizeToFit&lt;/span&gt;&lt;span class="p"&gt;];&lt;/span&gt;
+    &lt;span class="n"&gt;FBSnapshotVerifyView&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;label&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="s"&gt;@"bar"&lt;/span&gt;&lt;span class="p"&gt;);&lt;/span&gt;
+    &lt;span class="c1"&gt;// MyProjectTests/ReferenceImages/SnapshotTests/testLabel_bar@2x.png
+&lt;/span&gt;&lt;span class="p"&gt;}&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;が、基本的には1メソッド1アサーションとし、第2引数は&lt;code&gt;nil&lt;/code&gt;で省略した方が良いと思います。&lt;/p&gt;
+
+&lt;h3 id="retina・非retina"&gt;Retina・非Retina&lt;/h3&gt;
+
+&lt;p&gt;既にお気付きかと思いますが、画像はRetina用と非Retina用で別々に書き出されるので、
+非Retina環境でビューの位置が0.5ポイントずれて表示がボケるようなケースにも対応できます。
+Rakeやシェルスクリプトを使って、一挙にRetinaと非Retina両方でテストを実行するようなタスクを準備しておくと便利です。&lt;/p&gt;
+
+&lt;h3 id="ビューの内部実装に非依存"&gt;ビューの内部実装に非依存&lt;/h3&gt;
+
+&lt;p&gt;&lt;code&gt;FBSnapshotTestCase&lt;/code&gt;は&lt;code&gt;-[CALayer renderInContext:]&lt;/code&gt;を使ってスナップショットを撮っており、
+これでキャプチャできるものであれば、
+内部的に複数のサブビューを組み合わせていようが、CALayerを使っていようが、
+Core Graphicsを使っていようが、&lt;code&gt;UIImageView&lt;/code&gt;で画像を貼付けているだけであろうが、何でもかまいません。
+パフォーマンス上の都合から内部実装を大きく変えつつ描画内容は変えない、といったリファクタリングにも有効そうですね。&lt;/p&gt;
+
+&lt;h3 id="何から何までスナップショットを撮らなくても良い"&gt;何から何までスナップショットを撮らなくても良い&lt;/h3&gt;
+
+&lt;p&gt;特に既存のライブラリにテストを追加する場合、いきなりあらゆるケースを網羅しようとするとしんどいので、
+エッジケースで表示崩れのバグが見つかった場合にテストを追加する程度で良い気がしています。
+そもそも&lt;code&gt;recordMode&lt;/code&gt;の仕組みとワークフローからしてリグレッションテスト向きで、
+実際&lt;code&gt;FBSnapshotTestCase&lt;/code&gt;はそのような動機で開発されたようです。&lt;/p&gt;
+
+&lt;blockquote&gt;
+&lt;p&gt;At Facebook we write a lot of UI code. As you might imagine, each type of feed story is rendered using a subclass of UIView. There are a lot of edge cases that we want to handle correctly:&lt;/p&gt;
+
+&lt;p&gt;&amp;hellip;&lt;/p&gt;
+&lt;/blockquote&gt;
+
+&lt;h3 id="自分でreference-imageを作っても良い"&gt;自分でReference Imageを作っても良い&lt;/h3&gt;
+
+&lt;p&gt;&lt;code&gt;self.recordMode = YES;&lt;/code&gt;でreference imageを自動生成できますが、
+自前で画像を用意してもかまいません。
+あまりなさそうなケースですが、完成イメージが固まっていて描画内容が比較的単純な場合、
+適当な画像編集ツールでreference imageを先に作っておくことで、テストファーストなビュー開発をすることもできそうです。
+今回の&lt;code&gt;NAKPlaybackIndicatorView&lt;/code&gt;なんかはまさに打ってつけですね（実際は途中から導入したのでテストファーストではありませんでしたが）。&lt;/p&gt;
+
+&lt;h2 id="感想"&gt;感想&lt;/h2&gt;
+
+&lt;p&gt;正直なところ、最初はビューの描画テストなんてものすごい面倒くさくて割に合わないものかと思っていましたが、
+下準備が済んでテストを追加するワークフローに入ってしまえば想像より断然楽でした。
+&lt;code&gt;CGRect&lt;/code&gt;のアサーションをちまちま書いたりするより早いし、
+何より画像を目視確認できるので複雑で難解なアサーションを読み解く必要もありません。
+実際&lt;code&gt;NAKPlaybackIndicatorView&lt;/code&gt;では、
+&lt;code&gt;CALayer&lt;/code&gt;の&lt;code&gt;anchorPoint&lt;/code&gt;と&lt;code&gt;position&lt;/code&gt;プロパティの兼ね合いで描画位置がずれていたのに気付くことができました。&lt;/p&gt;
+
+&lt;p&gt;&lt;code&gt;FBSnapshotTestCase&lt;/code&gt;はGitHubでスターが現在350ほども付いているにも関わらず、
+今のところ英語圏も含めて紹介している記事が見当たりませんが、
+ビューのテストを考えているのであれば一度試してみてはいかがでしょうか。
+特に汎用化したOSSなビューライブラリなどでは、使う価値は十分あると思います。&lt;/p&gt;
+</content>
+  </entry>
+  <entry>
+    <title>CocoaPodsのプラグインを作る</title>
+    <link rel="alternate" href="http://blog.yujinakayama.me/posts/how-to-create-cocoapods-plugin/"/>
+    <id>http://blog.yujinakayama.me/posts/how-to-create-cocoapods-plugin/</id>
+    <published>2013-12-14T09:00:00+09:00</published>
+    <updated>2014-08-21T00:31:20+09:00</updated>
+    <author>
+      <name>Yuji Nakayama</name>
+    </author>
+    <content type="html">&lt;p&gt;この記事は&lt;a href="http://qiita.com/advent-calendar/2013/ios-2"&gt;iOS Second Stage Advent Calendar 2013&lt;/a&gt;の14日目の記事です。&lt;/p&gt;
+
+&lt;h2 id="概要"&gt;概要&lt;/h2&gt;
+
+&lt;p&gt;Cocoaのライブラリ管理ツールであるCocoaPodsですが、2013年11月14日にリリースされたバージョン0.28で、プラグイン機能が導入されました。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href="http://blog.cocoapods.org/CocoaPods-0.28/"&gt;CocoaPods 0.28 - CocoaPods Blog&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;本記事ではこのプラグインの作り方を紹介します。&lt;/p&gt;
+
+&lt;h2 id="cocoapodsプラグインとは"&gt;CocoaPodsプラグインとは&lt;/h2&gt;
+
+&lt;p&gt;CocoaPodsのプラグイン機能を利用すると、&lt;code&gt;pod&lt;/code&gt;コマンドに任意のサブコマンドを追加することができます。標準サブコマンドの&lt;code&gt;pod install&lt;/code&gt;や&lt;code&gt;pod update&lt;/code&gt;と同列な、新たなサブコマンドの作成が可能です。&lt;/p&gt;
+
+&lt;p&gt;CocoaPodsはRubyで作られたツールなので、プラグインもRubyで書く必要があります。また、プラグインの配布にはRubyGemsを利用します。&lt;/p&gt;
+
+&lt;p&gt;このプラグインの仕組みそのものは、CocoaPodsプロジェクトが依存gemとして利用している&lt;a href="https://github.com/CocoaPods/CLAide"&gt;CLAide&lt;/a&gt;によって&lt;a href="https://github.com/CocoaPods/CLAide/pull/3"&gt;可能になりました&lt;/a&gt;。&lt;/p&gt;
+
+&lt;h2 id="プラグインを作る"&gt;プラグインを作る&lt;/h2&gt;
+
+&lt;p&gt;ここでは&lt;code&gt;check-latest&lt;/code&gt;というサブコマンドを定義する、&lt;code&gt;cocoapods-check_latest&lt;/code&gt;というgemを作ることにします。これは指定したライブラリのpodの最新バージョンが、そのライブラリのGitHubリポジトリの最新のバージョンタグと同一かどうかをチェックするコマンドです。&lt;/p&gt;
+
+&lt;p&gt;試しにCocoaPodsで導入してみたライブラリがうまく動作しないと思ったら、実は最新のpodspecで指定されているライブラリのバージョンが、そのライブラリの本当の最新バージョンではなかった（この表現わかりにくいですね）という場面がたまにあったりします。なので事前にpodspecが最新かどうかチェックしたいのですが、そのライブラリのGitHubのリポジトリをブラウザで開いてタグ一覧を確認、というのも割と面倒なルーチンワークなので、この作業を自動化することにします。&lt;/p&gt;
+
+&lt;p&gt;まずは新しくgemのプロジェクトを作成します。&lt;a href="http://bundler.io/"&gt;Bundler&lt;/a&gt;を利用するのが良いでしょう。なお、gem名は&lt;code&gt;cocoapods-プラグイン名&lt;/code&gt;にすることが公式に推奨されています。そうしないとプラグインとして動作しない訳ではありませんが、RubyGemsでの検索のしやすさも考慮した慣例になっています。RubyGemsを&lt;code&gt;cocoapods-&lt;/code&gt;で&lt;a href="http://rubygems.org/search?utf8=✓&amp;amp;query=cocoapods-"&gt;検索&lt;/a&gt;すれば、現在公開されているプラグインの一覧が見られる訳ですね。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight shell"&gt;&lt;span class="gp"&gt;$ &lt;/span&gt;bundle gem cocoapods-check_latest
+...
+&lt;span class="gp"&gt;$ &lt;/span&gt;&lt;span class="nb"&gt;cd &lt;/span&gt;cocoapods-check_latest
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id="コマンドクラスを作成する"&gt;コマンドクラスを作成する&lt;/h3&gt;
+
+&lt;p&gt;&lt;code&gt;Pod::Command&lt;/code&gt;クラスを継承したコマンドクラスを作成します。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight ruby"&gt;&lt;span class="c1"&gt;# lib/pod/command/check_latest.rb&lt;/span&gt;
+
+&lt;span class="k"&gt;module&lt;/span&gt; &lt;span class="nn"&gt;Pod&lt;/span&gt;
+  &lt;span class="k"&gt;class&lt;/span&gt; &lt;span class="nc"&gt;Command&lt;/span&gt;
+    &lt;span class="c1"&gt;# クラス名からサブコマンド名が自動生成される。&lt;/span&gt;
+    &lt;span class="c1"&gt;# CamelCaseの単語間には"-"が挿入されるため、この場合"check-latest"になる。&lt;/span&gt;
+    &lt;span class="k"&gt;class&lt;/span&gt; &lt;span class="nc"&gt;CheckLatest&lt;/span&gt; &lt;span class="o"&gt;&amp;lt;&lt;/span&gt; &lt;span class="no"&gt;Command&lt;/span&gt;
+      &lt;span class="c1"&gt;# 必須。`pod help`時に一行で表示される概要を記述する。&lt;/span&gt;
+      &lt;span class="nb"&gt;self&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;summary&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;'Check if the latest version of a pod is up to date'&lt;/span&gt;
+
+      &lt;span class="c1"&gt;# 任意。`pod help check-latest`時に表示される、より詳細な説明を記述する。&lt;/span&gt;
+      &lt;span class="c1"&gt;# 未指定の場合、summaryの内容が表示される。&lt;/span&gt;
+      &lt;span class="nb"&gt;self&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;description&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;'Some long description...'&lt;/span&gt;
+
+      &lt;span class="c1"&gt;# コマンドラインから引数を受け取るコマンドの場合は必須。&lt;/span&gt;
+      &lt;span class="c1"&gt;# `pod help check-latest`時に、&lt;/span&gt;
+      &lt;span class="c1"&gt;#&lt;/span&gt;
+      &lt;span class="c1"&gt;# Usage:&lt;/span&gt;
+      &lt;span class="c1"&gt;#     $ pod check-latest [NAME]&lt;/span&gt;
+      &lt;span class="c1"&gt;#                        ^^^^^^ ここに表示される。&lt;/span&gt;
+      &lt;span class="nb"&gt;self&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;arguments&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="s1"&gt;'[NAME]'&lt;/span&gt;
+
+      &lt;span class="c1"&gt;# 引数を受け取るコマンドの場合は必須。&lt;/span&gt;
+      &lt;span class="c1"&gt;# argvから、後の処理で必要な引数をインスタンス変数に取り出しておく。&lt;/span&gt;
+      &lt;span class="c1"&gt;# この処理はsuper呼び出し前に行うこと。&lt;/span&gt;
+      &lt;span class="c1"&gt;# argvは、CLAide::ARGVのインスタンス。&lt;/span&gt;
+      &lt;span class="c1"&gt;# https://github.com/CocoaPods/CLAide/blob/v0.4.0/lib/claide/argv.rb&lt;/span&gt;
+      &lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;initialize&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;argv&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+        &lt;span class="vi"&gt;@name&lt;/span&gt; &lt;span class="o"&gt;=&lt;/span&gt; &lt;span class="n"&gt;argv&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;shift_argument&lt;/span&gt;
+        &lt;span class="k"&gt;super&lt;/span&gt;
+      &lt;span class="k"&gt;end&lt;/span&gt;
+
+      &lt;span class="c1"&gt;# 引数を受け取るコマンドの場合は必須。&lt;/span&gt;
+      &lt;span class="c1"&gt;# 引数が不正な場合はhelp!メソッドにメッセージを渡して中断する。&lt;/span&gt;
+      &lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;validate!&lt;/span&gt;
+        &lt;span class="k"&gt;super&lt;/span&gt;
+        &lt;span class="n"&gt;help!&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="s1"&gt;'A pod name is required.'&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="k"&gt;unless&lt;/span&gt; &lt;span class="vi"&gt;@name&lt;/span&gt;
+      &lt;span class="k"&gt;end&lt;/span&gt;
+
+      &lt;span class="c1"&gt;# 実際の処理を記述する。&lt;/span&gt;
+      &lt;span class="k"&gt;def&lt;/span&gt; &lt;span class="nf"&gt;run&lt;/span&gt;
+        &lt;span class="c1"&gt;# 長いので省略。実際の内容は以下を参照して下さい。&lt;/span&gt;
+        &lt;span class="c1"&gt;# https://github.com/yujinakayama/cocoapods-check_latest/blob/v0.0.1/lib/pod/command/check_latest.rb&lt;/span&gt;
+      &lt;span class="k"&gt;end&lt;/span&gt;
+    &lt;span class="k"&gt;end&lt;/span&gt;
+  &lt;span class="k"&gt;end&lt;/span&gt;
+&lt;span class="k"&gt;end&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;ちなみに、CocoaPodsのサブコマンドを定義するということは、CocoaPods本体のAPIを利用できる訳ですが、現時点ではどのクラスやメソッドがpublic APIであるかという宣言がされていません。将来的にはこの辺りも整備されてくるとは思いますが、現状では利用対象のクラスやメソッドが存在しているかどうかのチェックや、例外処理などをこまめに行うしかない模様です。どちらにしてもCocoaPodsは未だにバージョン1.0未満の初期開発段階なので、&lt;a href="http://semver.org/"&gt;Semantic Versioning&lt;/a&gt;的にもAPIの互換性はあまり重視されないフェーズではあるのですが。&lt;/p&gt;
+
+&lt;h3 id="作成したコマンドが、podコマンド実行時に読み込まれるようにする"&gt;作成したコマンドが、&lt;code&gt;pod&lt;/code&gt;コマンド実行時に読み込まれるようにする&lt;/h3&gt;
+
+&lt;p&gt;コマンドを作成しただけでは、CocoaPods本体がその存在を認識できません。&lt;/p&gt;
+
+&lt;p&gt;Rubyの&lt;code&gt;$LOAD_PATH&lt;/code&gt;に登録されたパス直下（通常はプロジェクトの&lt;code&gt;lib&lt;/code&gt;ディレクトリ直下）に、&lt;code&gt;cocoapods_plugin.rb&lt;/code&gt;というファイルを作成し、その中で上記のコマンドクラスが記述されたファイルを&lt;code&gt;require&lt;/code&gt;します。これによって&lt;code&gt;pod&lt;/code&gt;コマンド実行時にカスタムコマンドクラスがロードされるようになります。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight ruby"&gt;&lt;span class="c1"&gt;# lib/cocoapods_plugin.rb&lt;/span&gt;
+
+&lt;span class="nb"&gt;require&lt;/span&gt; &lt;span class="s1"&gt;'pod/command/check_latest'&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id="動作確認をする"&gt;動作確認をする&lt;/h2&gt;
+
+&lt;p&gt;実際に&lt;code&gt;pod&lt;/code&gt;コマンド経由で動くか確認してみましょう。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight shell"&gt;&lt;span class="gp"&gt;$ &lt;/span&gt;&lt;span class="nb"&gt;echo&lt;/span&gt; &lt;span class="s2"&gt;"gem 'cocoapods', '~&amp;gt; 0.28'"&lt;/span&gt; &amp;gt;&amp;gt; Gemfile
+&lt;span class="gp"&gt;$ &lt;/span&gt;bundle install
+...
+&lt;span class="gp"&gt;$ &lt;/span&gt;bundle &lt;span class="nb"&gt;exec &lt;/span&gt;pod &lt;span class="nb"&gt;help&lt;/span&gt; | grep check-latest
+    &lt;span class="k"&gt;*&lt;/span&gt; check-latest   Check &lt;span class="k"&gt;if &lt;/span&gt;the latest version of a pod is up to date
+&lt;span class="gp"&gt;$ &lt;/span&gt;bundle &lt;span class="nb"&gt;exec &lt;/span&gt;pod check-latest viewcontroller
+
+
+&lt;span class="gp"&gt;-&amp;gt; &lt;/span&gt;AMBubbleTableViewController
+   - Homepage: https://github.com/andreamazz/AMBubbleTableView
+   - Latest pod version:0.5.1
+   - Latest version &lt;span class="k"&gt;in &lt;/span&gt;original repo:0.5.1
+
+
+&lt;span class="gp"&gt;-&amp;gt; &lt;/span&gt;APPinViewController
+   - Homepage: https://github.com/Alterplay/APPinViewController
+   - Latest pod version:1.0.2
+   - Latest version &lt;span class="k"&gt;in &lt;/span&gt;original repo:1.0.2
+
+
+&lt;span class="gp"&gt;-&amp;gt; &lt;/span&gt;ARGenericTableViewController
+   - Homepage: https://github.com/arconsis/ARGenericTableViewController
+   - Latest pod version:1.0.0
+   - Latest version &lt;span class="k"&gt;in &lt;/span&gt;original repo:1.0.1
+   Outdated!
+
+...
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id="プラグインを配布する"&gt;プラグインを配布する&lt;/h2&gt;
+
+&lt;p&gt;あとはRubyGemsのルールに則ってgemを公開しましょう。&lt;/p&gt;
+
+&lt;p&gt;&lt;code&gt;cocoapods-check_latest.gemspec&lt;/code&gt;の&lt;code&gt;description&lt;/code&gt;, &lt;code&gt;summary&lt;/code&gt;, &lt;code&gt;homepage&lt;/code&gt;あたりの項目を&lt;a href="http://guides.rubygems.org/specification-reference/"&gt;記述&lt;/a&gt;し、BundlerのRakeタスクで公開します。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight shell"&gt;&lt;span class="gp"&gt;$ &lt;/span&gt;rake release
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h2 id="おわりに"&gt;おわりに&lt;/h2&gt;
+
+&lt;p&gt;実際に作成した&lt;a href="https://github.com/yujinakayama/cocoapods-check_latest"&gt;cocoapods-check_latest&lt;/a&gt;プラグインを公開しました。&lt;code&gt;gem install cocoapods-check_latest&lt;/code&gt;でインストールができます。&lt;/p&gt;
+</content>
+  </entry>
+  <entry>
+    <title>RSpecの最新の動向・RSpec 3へのアップグレードガイド</title>
+    <link rel="alternate" href="http://blog.yujinakayama.me/posts/latest-changes-of-rspec-3/"/>
+    <id>http://blog.yujinakayama.me/posts/latest-changes-of-rspec-3/</id>
+    <published>2013-12-06T09:00:00+09:00</published>
+    <updated>2014-08-21T01:09:09+09:00</updated>
+    <author>
+      <name>Yuji Nakayama</name>
+    </author>
+    <content type="html">&lt;p&gt;この記事は&lt;a href="http://qiita.com/advent-calendar/2013/ruby"&gt;Ruby Advent Calendar 2013&lt;/a&gt;の6日目の記事です。&lt;/p&gt;
+
+&lt;h2 id="概要"&gt;概要&lt;/h2&gt;
+
+&lt;p&gt;Rubyのデファクトスタンダードなテストフレームワークと言えるRSpecですが、現在バージョン3.0のリリースへ向けて開発が進められており、先日2013年11月8日には3.0.0.beta1がリリースされました。&lt;/p&gt;
+
+&lt;p&gt;この記事ではRSpec 3における変更点と、3.0.0.beta1へのアップグレード手順、また既存のspecを最新の記法に変換するツールを紹介します。&lt;/p&gt;
+
+&lt;h3 id="追記"&gt;追記&lt;/h3&gt;
+
+&lt;p&gt;RSpec 3は2014年6月2日に正式リリースされました。この記事は2013年12月6日に書かれたものですが、正式版においても通用する内容になっています。&lt;/p&gt;
+
+&lt;p&gt;正式版における主要な変更点は、以下のページが参考になるでしょう。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href="http://myronmars.to/n/dev-blog/2014/05/notable-changes-in-rspec-3"&gt;Myron Marston » Notable Changes in RSpec 3&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href="https://github.com/yujinakayama/transpec#supported-conversions"&gt;yujinakayama/transpec - Supported Conversions&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h2 id="rspec-3での変更"&gt;RSpec 3での変更&lt;/h2&gt;
+
+&lt;p&gt;RSpec 3は、2010年10月の2.0リリース以来3年ぶりのメジャーバージョンアップとなるため、多くのdeprecatedな機能が削除されます。&lt;/p&gt;
+
+&lt;h3 id="the-plan-for-rspec-3"&gt;The Plan for RSpec 3&lt;/h3&gt;
+
+&lt;p&gt;RSpec 3がどのようなものになるかは、RSpecプロジェクトのリードメンテナMyron Marston氏が今年2013年7月に記事を書いています。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href="http://myronmars.to/n/dev-blog/2013/07/the-plan-for-rspec-3"&gt;Myron Marston » The Plan for RSpec 3&lt;/a&gt;&lt;/li&gt;
+&lt;li&gt;&lt;a href="http://nilp.hatenablog.com/entry/2013/07/16/131641"&gt;RSpec 3に向けての計画(日本語訳) - 有頂天Ruby&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;その後、基本的にはこの計画通りに開発は進んでおり、3.0.0.beta1ではこのうちの一部が実装されています。具体的には、 &lt;em&gt;What’s Being Removed&lt;/em&gt; で挙げられている項目は全て実装（というか削除）が完了しています。また &lt;em&gt;What’s New&lt;/em&gt; の項目に関しては以下の3つが実装されています。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href="http://myronmars.to/n/dev-blog/2013/07/the-plan-for-rspec-3#mocks_test_double_interface_verification"&gt;Mocks: Test double interface verification&lt;/a&gt;（Mocks: テストダブルのインターフェースの検証）&lt;/li&gt;
+&lt;li&gt;&lt;a href="http://myronmars.to/n/dev-blog/2013/07/the-plan-for-rspec-3#core_dsl_methods_will_yield_the_example"&gt;Core: DSL methods will yield the example&lt;/a&gt;（Core: DSLメソッドがexampleをyieldするようになる）&lt;/li&gt;
+&lt;li&gt;&lt;a href="http://myronmars.to/n/dev-blog/2013/07/the-plan-for-rspec-3#mocks__block_implementations_will_yield_the_receiver"&gt;Mocks: &lt;code&gt;any_instance&lt;/code&gt; block implementations will yield the receiver&lt;/a&gt;（Mocks: &lt;code&gt;any_instance&lt;/code&gt;がブロック実装にreceiverをyieldするようになる）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;h3 id="その後の変更"&gt;その後の変更&lt;/h3&gt;
+
+&lt;p&gt;The Plan for RSpec 3はあくまでも7月時点での計画だったため、その後追加された変更があります。&lt;/p&gt;
+
+&lt;h4 id="be_true/be_falseマッチャのリネーム"&gt;&lt;code&gt;be_true&lt;/code&gt;/&lt;code&gt;be_false&lt;/code&gt;マッチャのリネーム&lt;/h4&gt;
+
+&lt;p&gt;&lt;code&gt;be_true&lt;/code&gt;/&lt;code&gt;be_false&lt;/code&gt;マッチャが、&lt;code&gt;be_truthy&lt;/code&gt;/&lt;code&gt;be_falsey&lt;/code&gt;（または&lt;code&gt;be_falsy&lt;/code&gt;）にリネームされ、3.0では&lt;code&gt;be_true&lt;/code&gt;/&lt;code&gt;be_false&lt;/code&gt;は利用できなくなります。この変更は既に3.0.0.beta1に取り込まれています。&lt;/p&gt;
+
+&lt;p&gt;この理由ですが、&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;be_true&lt;/code&gt;は、その名前にもかかわらず、テスト対象が真（&lt;code&gt;false&lt;/code&gt;, &lt;code&gt;nil&lt;/code&gt;以外）であればパスしており、&lt;code&gt;true&lt;/code&gt;との同一性はテストされていなかった。&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;be_false&lt;/code&gt;も同様に、テスト対象が偽（&lt;code&gt;false&lt;/code&gt;, &lt;code&gt;nil&lt;/code&gt;）であればパスしており、&lt;code&gt;false&lt;/code&gt;との同一性はテストされていなかった。&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;といったように、名前と挙動が一致していませんでした。&lt;/p&gt;
+
+&lt;p&gt;今回の変更は、これまでの挙動に名前を合わせた形になります。実際のところ&lt;code&gt;be_true&lt;/code&gt;/&lt;code&gt;be_false&lt;/code&gt;はpredicate method（&lt;code&gt;?&lt;/code&gt;で終わるメソッド）のテストに使われることが多く、それらは直接&lt;code&gt;if&lt;/code&gt;文などの条件部に置かれることが多いため、この挙動が問題になるケースはあまりなかったように思います。&lt;/p&gt;
+
+&lt;p&gt;既存のspecをどうするべきかですが、この挙動を以前から知っていて敢えて使っていた、もしくは知らなかったけど特にそこまでの厳格さを求めない、ということであれば、&lt;code&gt;be_truthy&lt;/code&gt;/&lt;code&gt;be_falsey&lt;/code&gt;に書き換えれば良いでしょう。&lt;/p&gt;
+
+&lt;p&gt;一方、そんな挙動だったなんて知らなかった、これを機に厳格にテストしたい、という場合は&lt;code&gt;be true&lt;/code&gt;/&lt;code&gt;be false&lt;/code&gt;を利用することが推奨されています。これらは新しい記法ではなく、従来からある&lt;code&gt;be&lt;/code&gt;マッチャと&lt;code&gt;true&lt;/code&gt;/&lt;code&gt;false&lt;/code&gt;リテラルの組み合わせです。&lt;code&gt;be&lt;/code&gt;は&lt;code&gt;equal&lt;/code&gt;マッチャのaliasであり、オブジェクトの同一性がテストされます。&lt;/p&gt;
+
+&lt;h4 id="rspec-mocksへの一部のexpect記法の追加"&gt;&lt;code&gt;rspec-mocks&lt;/code&gt;への一部のexpect記法の追加&lt;/h4&gt;
+
+&lt;p&gt;should記法の、ハッシュを引数に取った&lt;code&gt;stub&lt;/code&gt;と、&lt;code&gt;stub_chain&lt;/code&gt;に対応するexpect記法が追加されます。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight ruby"&gt;&lt;span class="c1"&gt;# should記法&lt;/span&gt;
+&lt;span class="n"&gt;obj&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;stub&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="ss"&gt;:foo&lt;/span&gt; &lt;span class="o"&gt;=&amp;gt;&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="ss"&gt;:bar&lt;/span&gt; &lt;span class="o"&gt;=&amp;gt;&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+&lt;span class="n"&gt;obj&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;stub_chain&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="ss"&gt;:foo&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="ss"&gt;:bar&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="ss"&gt;:baz&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt;
+
+&lt;span class="c1"&gt;# expect記法&lt;/span&gt;
+&lt;span class="n"&gt;allow&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;obj&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;receive_messages&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="ss"&gt;:foo&lt;/span&gt; &lt;span class="o"&gt;=&amp;gt;&lt;/span&gt; &lt;span class="mi"&gt;1&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="ss"&gt;:bar&lt;/span&gt; &lt;span class="o"&gt;=&amp;gt;&lt;/span&gt; &lt;span class="mi"&gt;2&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="c1"&gt;# 3.0.0.beta1から利用可能&lt;/span&gt;
+&lt;span class="n"&gt;allow&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="n"&gt;obj&lt;/span&gt;&lt;span class="p"&gt;).&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;receive_message_chain&lt;/span&gt;&lt;span class="p"&gt;(&lt;/span&gt;&lt;span class="ss"&gt;:foo&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="ss"&gt;:bar&lt;/span&gt;&lt;span class="p"&gt;,&lt;/span&gt; &lt;span class="ss"&gt;:baz&lt;/span&gt;&lt;span class="p"&gt;)&lt;/span&gt; &lt;span class="c1"&gt;# 現時点で未リリース、おそらく3.0.0.beta2から利用可能&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;2012年7月に&lt;a href="http://myronmars.to/n/dev-blog/2012/06/rspecs-new-expectation-syntax"&gt;RSpec 2.11で導入されたexpect記法&lt;/a&gt;ですが、この時点では&lt;code&gt;rspec-expectations&lt;/code&gt;のみへの導入でした。その1年後の2013年7月に&lt;a href="http://teaisaweso.me/blog/2013/05/27/rspecs-new-message-expectation-syntax/"&gt;RSpec 2.14で&lt;code&gt;rspec-mocks&lt;/code&gt;にもexpect記法が導入&lt;/a&gt;され、&lt;code&gt;expect(obj).to receive(:message)&lt;/code&gt;や&lt;code&gt;allow(obj).to receive(:message)&lt;/code&gt;といった記述が可能になりました。この記法は2.11での導入時ほど話題にならなかったため、知らない方も割といるのではないでしょうか。&lt;/p&gt;
+
+&lt;p&gt;しかしRSpec 2.14時点での&lt;code&gt;rspec-mocks&lt;/code&gt;のexpect記法は、should記法すべてに対して代替手段が用意されている訳ではありませんでした。これは単なる実装漏れではなく、いわゆるcode smellがするため一旦導入を見送っていたなどの理由があったのですが、最終的には前述の2つについては代替記法が導入されることになります。ちなみに&lt;code&gt;unstub&lt;/code&gt;は未だexpect記法は存在せず、RSpecコアチームの見解を見る限り、おそらく今後も導入されることは無いものと思われます。&lt;/p&gt;
+
+&lt;h4 id="ワンライナーshouldのexpect記法"&gt;ワンライナー&lt;code&gt;should&lt;/code&gt;のexpect記法&lt;/h4&gt;
+
+&lt;p&gt;ワンライナー&lt;code&gt;should&lt;/code&gt;のexpect記法として&lt;code&gt;is_expected.to&lt;/code&gt;が追加されます。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight ruby"&gt;&lt;span class="n"&gt;it&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="n"&gt;should&lt;/span&gt; &lt;span class="n"&gt;be_empty&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt;
+&lt;span class="n"&gt;it&lt;/span&gt; &lt;span class="p"&gt;{&lt;/span&gt; &lt;span class="n"&gt;is_expected&lt;/span&gt;&lt;span class="p"&gt;.&lt;/span&gt;&lt;span class="nf"&gt;to&lt;/span&gt; &lt;span class="n"&gt;be_empty&lt;/span&gt; &lt;span class="p"&gt;}&lt;/span&gt; &lt;span class="c1"&gt;# 現時点で未リリース、おそらく2.99.0.beta2から利用可能&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;expect記法が導入された経緯として、既存のshould記法は&lt;code&gt;should&lt;/code&gt;/&lt;code&gt;should_receive&lt;/code&gt;/&lt;code&gt;stub&lt;/code&gt;などのメソッドを&lt;code&gt;BasicObject&lt;/code&gt;クラスにモンキーパッチで追加するため、delegate/proxyなオブジェクトで正常にテストができないという問題がありました。しかしワンライナー&lt;code&gt;should&lt;/code&gt;は&lt;code&gt;BasicObject&lt;/code&gt;クラスにモンキーパッチされたものではなく、その実体は&lt;code&gt;RSpec::Core::ExampleGroup#should&lt;/code&gt;であり、前述の問題は発生しません。そのためワンライナー&lt;code&gt;should&lt;/code&gt;はこれまでexpect記法が用意されておらず、&lt;code&gt;RSpec.configure&lt;/code&gt;で&lt;a href="https://www.relishapp.com/rspec/rspec-expectations/v/3-0/docs/syntax-configuration#disable-should-syntax"&gt;should記法が無効化&lt;/a&gt;されていても利用することができました。&lt;/p&gt;
+
+&lt;p&gt;しかしコードの見た目上expect記法と混在させた時に一貫性がなかったり、「ワンライナー&lt;code&gt;should&lt;/code&gt;のexpect記法は？」といったユーザからの声が多かったため、&lt;code&gt;is_expected.to&lt;/code&gt;が代替記法として追加されます。&lt;/p&gt;
+
+&lt;p&gt;ちなみにモンキーパッチ&lt;code&gt;should&lt;/code&gt;はRSpec 3.0からdeprecated扱いになりますが（ただし&lt;a href="https://www.relishapp.com/rspec/rspec-expectations/v/3-0/docs/syntax-configuration#disable-expect-syntax"&gt;明示的にshould記法を利用する宣言&lt;/a&gt;をすればdeprecation warningは表示されない）、ワンライナー&lt;code&gt;should&lt;/code&gt;は3.0でも現役なため、&lt;code&gt;is_expected.to&lt;/code&gt;が冗長だと感じる場合はワンライナー&lt;code&gt;should&lt;/code&gt;を使い続けても問題ありません。&lt;/p&gt;
+
+&lt;h2 id="rspec-3へのアップグレード"&gt;RSpec 3へのアップグレード&lt;/h2&gt;
+
+&lt;p&gt;ここでは既存のプロジェクトをRSpec 3.0.0.beta1にアップグレードする際の手順を解説します。&lt;/p&gt;
+
+&lt;p&gt;ベータ版ではありますが、今のところ大きなバグもなく、deprecatedな機能が一掃されたバージョンなので、今のうちにアップグレードしておくと正式リリースの際にスムーズな移行ができます。アグレッシブな方はこの機会にアップグレードしてしまいましょう。&lt;/p&gt;
+
+&lt;h3 id="rspec-2.99"&gt;RSpec 2.99&lt;/h3&gt;
+
+&lt;p&gt;RSpec 2.99は、バージョン2系との後方互換性を保ちつつ、3.0で非互換になる全ての機能に対してwarningを表示する、アップグレードの通過点となるバージョンです。&lt;/p&gt;
+
+&lt;p&gt;既存のspecをまずバージョン2.99で実行することで、そのspecを3.0に対応させるにあたって必要な変更を知ることができます。3.0のchangelog全ての項目に目を通して、どれが自分のプロジェクトに影響を与えるかをいちいち調べる必要はありません。&lt;/p&gt;
+
+&lt;h3 id="transpec"&gt;Transpec&lt;/h3&gt;
+
+&lt;p&gt;しかし何を変更すれば良いかはわかっても、その書き換え作業は自分で行う必要があります。正直言ってこれはかなり面倒くさいし、世界中のRSpecユーザがそれぞれ正規表現のワンライナーなどでちまちま置換作業をするのは非合理的です。&lt;/p&gt;
+
+&lt;p&gt;という訳で、既存のspecを最新の記法に書き換えるツール、&lt;a href="http://yujinakayama.me/transpec/"&gt;Transpec&lt;/a&gt;を作りました。Transpecを既存のプロジェクトに対して実行すると、静的解析と動的解析によってspecファイルを最新の記法に書き換えます。現時点で、RSpec 2.0から3.0にかけてdeprecatedになった大半の記法の変換をサポートしています。詳細は&lt;a href="https://github.com/yujinakayama/transpec#supported-conversions"&gt;README - Supported Conversions&lt;/a&gt;を参照して下さい。&lt;/p&gt;
+
+&lt;p&gt;プロジェクトによってはTranspecによる変換だけでRSpec 3対応が完了する場合もあるでしょうし、追加で手作業が必要な場合もごくわずかな書き換えで済むかと思います。また、Transpecは&lt;a href="https://github.com/rspec/rspec-expectations/commit/f2121650e10464b8cb004e66d03bc77bc7746c6b"&gt;RSpecプロジェクトそのものでも利用されて&lt;/a&gt;います。&lt;/p&gt;
+
+&lt;h3 id="手順"&gt;手順&lt;/h3&gt;
+
+&lt;p&gt;RSpec公式のアップグレードガイドがあるので、この手順に従います。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href="https://relishapp.com/rspec/docs/upgrade"&gt;https://relishapp.com/rspec/docs/upgrade&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;ol&gt;
+&lt;li&gt;現状のままspecを実行し、all greenなことを確認します。&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;Gemfile&lt;/code&gt;で&lt;code&gt;rspec&lt;/code&gt;のバージョンに&lt;code&gt;~&amp;gt; 2.99&lt;/code&gt;を指定し、&lt;code&gt;bundle update rspec&lt;/code&gt;を実行します。&lt;/li&gt;
+&lt;li&gt;再度specを実行し、all greenなことを確認します。RSpecは&lt;a href="http://semver.org/"&gt;Semantic Versioning&lt;/a&gt;準拠で開発されているため、RSpec 2.0時代のspecであっても2.99で正常に動作するはずです。動作しないのであれば、それはRSpecのバグです。必要であればこの時点でコミットをします。&lt;/li&gt;
+&lt;li&gt;spec実行後、deprecation warningが表示されるので内容を確認します。これらが3.0対応にあたって変更が必要な点になります。&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;gem install transpec&lt;/code&gt;でTranspecをインストールします。これは日常的に使うツールではないので、通常はプロジェクトの&lt;code&gt;Gemfile&lt;/code&gt;に追加する必要はありません。&lt;/li&gt;
+&lt;li&gt;プロジェクトのルートディレクトリで&lt;code&gt;transpec&lt;/code&gt;を実行します。Transpecはデフォルトで可能な限り最新の推奨された記法に変換しますが、必要であればTranspecの&lt;a href="https://github.com/yujinakayama/transpec"&gt;README&lt;/a&gt;を参照し、コマンドラインオプションで変換の挙動をカスタマイズして下さい。例えば&lt;code&gt;have(n).items&lt;/code&gt;や&lt;code&gt;its&lt;/code&gt;はRSpec 3.0で削除されますが、外部gem化された&lt;a href="https://github.com/rspec/rspec-collection_matchers"&gt;rspec-collection_matchers&lt;/a&gt;や&lt;a href="https://github.com/rspec/rspec-its"&gt;rspec-its&lt;/a&gt;を利用することで3.0以降も使い続けることができるため、もしその方針であればこれらの変換を&lt;code&gt;--keep have_items,its&lt;/code&gt;オプションで無効化できます。&lt;/li&gt;
+&lt;li&gt;Transpecによる変換が完了したら、一旦コミットします（Transpecは&lt;a href="https://github.com/yujinakayama/transpec#basic-usage"&gt;自動的にコミットメッセージを生成する&lt;/a&gt;のでそれを利用すると良いでしょう）。&lt;/li&gt;
+&lt;li&gt;再度specを実行します。まだdeprecation warningが表示されるようであれば、手作業で対処します。all greenかつdeprecation warningがなくなったらコミットします。&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;Gemfile&lt;/code&gt;で、&lt;code&gt;rspec&lt;/code&gt;のバージョンに&lt;code&gt;~&amp;gt; 3.0&lt;/code&gt;を指定し、&lt;code&gt;bundle update rspec&lt;/code&gt;します。&lt;/li&gt;
+&lt;li&gt;RSpec 3.0でspecを実行します。all greenなはずですが、もし失敗するのであればそれはRSpecのバグです。問題なければコミットします。&lt;/li&gt;
+&lt;li&gt;RSpec 3.0から新たにdeprecated扱いになる機能もあり、場合によってはwarningが表示されるかもしれません。また、2.99の時点では代替となる記法が存在せず、3.0になってからでないと変換ができないものもあります（前述の&lt;code&gt;receive_messages&lt;/code&gt;など）。その場合は再度&lt;code&gt;transpec&lt;/code&gt;を実行するとそれらを変換できます。&lt;/li&gt;
+&lt;li&gt;再度specを実行します。問題なければコミットします。&lt;/li&gt;
+&lt;li&gt;完了！&lt;/li&gt;
+&lt;/ol&gt;
+
+&lt;h2 id="おわりに"&gt;おわりに&lt;/h2&gt;
+
+&lt;p&gt;本記事で解説したRSpec 3での変更は確定した訳ではなく、今後も新たな変更がある可能性があります。ちなみにGitHubのRSpecのマイルストーンを見る限り、3.0.0.beta2は2013年内のリリースを目指している模様です。&lt;/p&gt;
+</content>
+  </entry>
+  <entry>
+    <title>iTunes AirPlay Control for Alfred</title>
+    <link rel="alternate" href="http://blog.yujinakayama.me/posts/itunes-airplay-control-for-alfred/"/>
+    <id>http://blog.yujinakayama.me/posts/itunes-airplay-control-for-alfred/</id>
+    <published>2013-09-14T20:20:00+09:00</published>
+    <updated>2014-08-21T00:31:20+09:00</updated>
+    <author>
+      <name>Yuji Nakayama</name>
+    </author>
+    <content type="html">&lt;p&gt;&lt;a href="http://www.alfredapp.com/"&gt;Alfred 2&lt;/a&gt; から iTunes の AirPlay スピーカーを操作可能にする Workflow を作りました。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;a href="https://github.com/yujinakayama/alfred-itunes-airplay"&gt;iTunes AirPlay Control for Alfred&lt;/a&gt;&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;&lt;img alt="Screenshot" src="https://raw.github.com/yujinakayama/alfred-itunes-airplay/master/screenshot.jpg" /&gt;&lt;/p&gt;
+
+&lt;p&gt;Workflow は Alfred の有償拡張パック &lt;a href="http://www.alfredapp.com/powerpack/"&gt;Powerpack&lt;/a&gt; の一機能なため、Powerpack を購入しておく必要があります。&lt;/p&gt;
+
+&lt;h2 id="仕組み"&gt;仕組み&lt;/h2&gt;
+
+&lt;p&gt;AppleEvent（&lt;a href="http://ja.wikipedia.org/wiki/Open_Scripting_Architecture"&gt;Open Scripting Architecture&lt;/a&gt;）を使って、iTunes から AirPlay スピーカー一覧を取得したり、設定変更をしています。実際には AppleEvent そのものが表に顔を出すことはほぼ無く、AppleEvent を記述するためのスクリプト言語 AppleScript について語られることが多いかと思います。&lt;/p&gt;
+
+&lt;p&gt;AppleScript で Mac のアプリケーションを操作するには、操作される側のアプリケーションがその操作のための API を提供している必要があります。「このアプリのこの操作は AppleScript に対応している」とか「AppleScript を使えばこのアプリのあの操作を実行できる」という表現の方が普通かもしれません。各アプリケーションが提供している AppleScript API は、AppleScript Editor（&lt;code&gt;/Applications/Utilities/AppleScript Editor.app&lt;/code&gt;）にアプリケーションをドラッグ&amp;amp;ドロップすると閲覧できます。&lt;/p&gt;
+
+&lt;p&gt;今回の Alfred の Workflow は、AppleScript ではなく、Ruby から AppleEvent を触るための &lt;a href="https://developer.apple.com/library/mac/documentation/Cocoa/Conceptual/RubyPythonCocoa/Articles/UsingScriptingBridge.html"&gt;Scripting Bridge&lt;/a&gt; という仕組みを使っています。というのも、今回は iTunes だけでなく Alfred との入出力（ユーザからの入力文字列や処理結果のレスポンス XML 生成）も行う必要があり、その辺りは Ruby の方が断然楽だったので。&lt;/p&gt;
+
+&lt;p&gt;AirPlay スピーカーの切り替えって、iTunes ウインドウを表示して AirPlay ボタンをクリックしてスピーカーを選択、という手順ですごく面倒くさくて外部ツールによる切り替えをずっとしたかったんですが、AirPlay の操作はずっと AppleScript 非対応でした。iTunes バージョンアップの度に必死で対応チェックしていたくらい面倒でした。&lt;/p&gt;
+
+&lt;p&gt;が、今日久しぶりに Apple Script Editor で iTunes を開いてみたら &lt;code&gt;AirPlay devices&lt;/code&gt; の記述があるじゃないですか。という訳で早速 Workflow を書きました。これで iTunes ライフが少し快適になりそうです。どのバージョンから対応したんだろう。&lt;/p&gt;
+</content>
+  </entry>
+  <entry>
+    <title>RuboCop 0.9.0</title>
+    <link rel="alternate" href="http://blog.yujinakayama.me/posts/rubocop-0-9-0/"/>
+    <id>http://blog.yujinakayama.me/posts/rubocop-0-9-0/</id>
+    <published>2013-07-03T03:30:00+09:00</published>
+    <updated>2014-08-21T00:31:20+09:00</updated>
+    <author>
+      <name>Yuji Nakayama</name>
+    </author>
+    <content type="html">&lt;p&gt;2013年7月1日、RuboCop 0.9.0 がリリースされました。といっても RuboCop をご存知ない方も多いかと思うので、まずは概要から。&lt;/p&gt;
+
+&lt;h2 id="rubocop-とは"&gt;RuboCop とは&lt;/h2&gt;
+
+&lt;p&gt;&lt;a href="https://github.com/bbatsov/rubocop"&gt;RuboCop&lt;/a&gt; は Ruby のコーディングスタイルチェッカーです。Ruby コードを静的解析し、コーディングスタイル違反を検出します。Java で言う &lt;a href="http://checkstyle.sourceforge.net"&gt;Checkstyle&lt;/a&gt; みたいなものですね。&lt;/p&gt;
+
+&lt;p&gt;RuboCop は、コーディングスタイルとして &lt;a href="http://github.com/bbatsov/ruby-style-guide"&gt;Ruby Style Guide&lt;/a&gt; を採用しています。むしろ、Ruby Style Guide の適用を押し進めるために RuboCop が作られたという方が正しいかもしれません。これは &lt;a href="https://github.com/bbatsov"&gt;Bozhidar Batsov&lt;/a&gt; 氏が始めたコミュニティ主導のスタイルガイドプロジェクトで、GitHub 社内で使われている &lt;a href="https://github.com/styleguide/ruby"&gt;Ruby Styleguide&lt;/a&gt; のベースにもなっており、Rubyist ならご存知の方も多いでしょう。&lt;/p&gt;
+
+&lt;p&gt;Ruby のコードメトリックスツールとしては他に &lt;a href="https://github.com/square/cane"&gt;Cane&lt;/a&gt; や &lt;a href="https://github.com/troessner/reek"&gt;Reek&lt;/a&gt; などがありますが、これらはいわゆる「コードの臭い」を測定するものであり、コーディングスタイルを本格的にチェックするツールはこれまでなかったように思います。&lt;/p&gt;
+
+&lt;p&gt;RuboCop は、スタイル違反をチェックする cop（警官）達の集合体として構成されています。例えば、1行あたりの文字数をチェックする &lt;code&gt;LineLength&lt;/code&gt; cop、メソッド名や変数名が snake_case になっているかチェックする &lt;code&gt;MethodAndVariableSnakeCase&lt;/code&gt; cop、と言った形で、チェックする項目ごとに専任の cop が実装されています。&lt;/p&gt;
+
+&lt;h3 id="インストール"&gt;インストール&lt;/h3&gt;
+
+&lt;p&gt;普通に &lt;code&gt;gem&lt;/code&gt; コマンドでインストールできます。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight shell"&gt;&lt;span class="gp"&gt;$ &lt;/span&gt;gem install rubocop
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id="実行"&gt;実行&lt;/h3&gt;
+
+&lt;p&gt;チェックしたい Ruby のソースファイルがあるディレクトリ内で &lt;code&gt;rubocop&lt;/code&gt; コマンドを実行します。典型的にはプロジェクトルートディレクトリになるでしょう。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight shell"&gt;&lt;span class="gp"&gt;$ &lt;/span&gt;&lt;span class="nb"&gt;cd &lt;/span&gt;some-project
+&lt;span class="gp"&gt;$ &lt;/span&gt;rubocop
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;p&gt;この場合、カレントディレクトリ以下の、拡張子が &lt;code&gt;.rb&lt;/code&gt; であるファイル、または拡張子が無く shebang（ファイル1行目の &lt;code&gt;#!&lt;/code&gt; で始まる行）に &lt;code&gt;ruby&lt;/code&gt; が含まれるファイルがチェック対象となります。&lt;/p&gt;
+
+&lt;p&gt;おそらく上記のコマンドを既存のプロジェクトに対して実行すると、大量のスタイル違反が検出されるかと思います。&lt;/p&gt;
+
+&lt;h3 id="設定"&gt;設定&lt;/h3&gt;
+
+&lt;p&gt;RuboCop の挙動は、設定を記述した &lt;code&gt;.rubocop.yml&lt;/code&gt; ファイルを置くことで、ディレクトリ単位で変更することができます。&lt;/p&gt;
+
+&lt;p&gt;例えば &lt;code&gt;.rubocop.yml&lt;/code&gt; に以下のような内容を記述すると、&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight yaml"&gt;&lt;span class="s"&gt;Eval&lt;/span&gt;&lt;span class="pi"&gt;:&lt;/span&gt;
+  &lt;span class="s"&gt;Enabled&lt;/span&gt;&lt;span class="pi"&gt;:&lt;/span&gt; &lt;span class="s"&gt;false&lt;/span&gt;
+
+&lt;span class="s"&gt;LineLength&lt;/span&gt;&lt;span class="pi"&gt;:&lt;/span&gt;
+  &lt;span class="s"&gt;Max&lt;/span&gt;&lt;span class="pi"&gt;:&lt;/span&gt; &lt;span class="s"&gt;100&lt;/span&gt;
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;Kernel.#eval&lt;/code&gt; メソッドの利用を警告する &lt;code&gt;Eval&lt;/code&gt; cop を無効化&lt;/li&gt;
+&lt;li&gt;1行あたりの最大文字数を100文字に設定（デフォルトは79文字）&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;といったカスタマイズができます。&lt;/p&gt;
+
+&lt;p&gt;既存のプロジェクトで RuboCop を使う場合、一旦最初は大半の cop を無効にしておき、一部 cop を有効化、違反箇所を修正、コミット、といった繰り返しで徐々にスタイルを適合させていくと良いのではないでしょうか。&lt;/p&gt;
+
+&lt;h2 id="バージョン-0.9.0-の新機能"&gt;バージョン 0.9.0 の新機能&lt;/h2&gt;
+
+&lt;p&gt;さて、今回の 0.9.0 の新機能です。&lt;/p&gt;
+
+&lt;h3 id="formatter"&gt;Formatter&lt;/h3&gt;
+
+&lt;p&gt;RSpec の formatter に似た仕組みを導入しました。&lt;code&gt;-f/--format&lt;/code&gt; オプションで、結果の出力書式を切り替えられるようになっています。&lt;/p&gt;
+
+&lt;p&gt;これに伴い、標準の組み込み formatter もいくつか追加しています。&lt;/p&gt;
+
+&lt;ul&gt;
+&lt;li&gt;&lt;code&gt;progress&lt;/code&gt; — RSpec の progress formatter ライクな、ドットによる進捗表示（デフォルト）&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;clang&lt;/code&gt; — 違反箇所を Clang の診断結果ライクに表示（後述）&lt;/li&gt;
+&lt;li&gt;&lt;code&gt;json&lt;/code&gt; — 解析結果を JSON で出力&lt;/li&gt;
+&lt;/ul&gt;
+
+&lt;p&gt;また、独自の formatter クラスを作成することで、&lt;a href="https://github.com/bbatsov/rubocop#custom-formatters"&gt;カスタムフォーマッタ&lt;/a&gt;を利用することも可能です。&lt;/p&gt;
+
+&lt;h3 id="違反箇所の詳細な表示"&gt;違反箇所の詳細な表示&lt;/h3&gt;
+
+&lt;p&gt;前述の &lt;code&gt;clang&lt;/code&gt; formatter がこれにあたります。その名の通り &lt;a href="http://clang.llvm.org/diagnostics.html"&gt;Clang の診断結果&lt;/a&gt; ライクに、違反箇所のハイライト表示をします。&lt;code&gt;progress&lt;/code&gt; formatter も、解析完了後にサマリーとしてこの形式で表示をするようになっています。&lt;/p&gt;
+&lt;pre&gt;&lt;code class="highlight plaintext"&gt;features/support/helper.rb:6:3: W: Assigned but unused variable - stdin
+  stdin, stdout, stderr, thread = Open3.popen3(*command)
+  ^^^^^
+&lt;/code&gt;&lt;/pre&gt;
+
+&lt;h3 id="ruby-の実装エンジン非依存の構文チェック"&gt;Ruby の実装エンジン非依存の構文チェック&lt;/h3&gt;
+
+&lt;p&gt;RuboCop はスタイルのチェックだけでなく、&lt;code&gt;ruby -cw&lt;/code&gt; で警告されるような基本的な構文チェックも行います。例えば、利用していないローカル変数の検出なんかがこれにあたります。&lt;/p&gt;
+
+&lt;p&gt;バージョン 0.9.0 以前は、まさにそのまま &lt;code&gt;ruby -cw&lt;/code&gt; コマンドを対象ファイル毎に実行してその出力をパースしていたのですが、この機能は MRI (CRuby) のみで有効で、JRuby や Rubinius ではスキップされていました（RuboCop は JRuby や Rubinius もサポートしています）。この理由として、JRuby は JVM 上で動くためプロセスの立ち上がりが非常に遅く実用に耐えないこと、また Rubinius は警告のバリエーションが MRI ほど充実していなかったことなどがあります。&lt;/p&gt;
+
+&lt;p&gt;RuboCop 0.9.0 では、MRI 2.0 で出力される警告のうち、一部をピュア Ruby で RuboCop 内に再実装し、依存 gem である &lt;a href="https://github.com/whitequark/parser"&gt;Parser&lt;/a&gt; からの警告と合わせることで警告バリエーションの大半をカバーしており、JRuby や Rubinius 上でも同様に動作する構文チェックを実現しています。&lt;/p&gt;
+
+&lt;h3 id="違反コードの自動修正"&gt;違反コードの自動修正&lt;/h3&gt;
+
+&lt;p&gt;これはまだ実験的な機能であり、ごく一部の cop でしかサポートされていませんが、&lt;code&gt;-a/--auto-correct&lt;/code&gt; オプションによって違反箇所を自動的に修正することが可能となっています。&lt;/p&gt;
+
+&lt;p&gt;個人的にはこの機能の今後にはかなり期待しています。初めて RuboCop を使ってみて、大量の違反が検出された時点で修正する気をなくす人は多いでしょうし、チームでこういったスタイルチェッカーを導入する際にも「面倒くさい」といった心の声は確実に存在すると思います。&lt;/p&gt;
+
+&lt;p&gt;メソッドやクラスレベルのリファクタリングを要求するような違反（長過ぎるメソッドなど）の自動修正は難しいですが、書式の変換程度で済むような違反は、今後の実装でほぼ自動修正が可能になるのではないでしょうか。&lt;/p&gt;
+
+&lt;h3 id="rails-cop"&gt;Rails Cop&lt;/h3&gt;
+
+&lt;p&gt;これも実験段階でまだ一つの cop しか実装されていませんが、&lt;a href="https://github.com/bbatsov/rails-style-guide"&gt;Rails Style Guide&lt;/a&gt; をベースとした Rails 用 cop が追加されました。&lt;code&gt;-R/--rails&lt;/code&gt; オプションを指定した場合のみ有効になります。&lt;/p&gt;
+
+&lt;h3 id="その他"&gt;その他&lt;/h3&gt;
+
+&lt;p&gt;多くの cop の追加やバグフィックスが含まれています。
+詳細は &lt;a href="https://github.com/bbatsov/rubocop/blob/master/CHANGELOG.md#090-01072013"&gt;Changelog&lt;/a&gt; をご覧下さい。&lt;/p&gt;
+
+&lt;h2 id="1.0-に向けて"&gt;1.0 に向けて&lt;/h2&gt;
+
+&lt;p&gt;次期バージョンの 1.0 では、前述の 0.9 で導入された機能のブラッシュアップを予定しています。&lt;/p&gt;
+
+&lt;p&gt;実は僕も少し前から RuboCop の開発に&lt;a href="https://github.com/bbatsov/rubocop/graphs/contributors"&gt;参加しています&lt;/a&gt;。
+ファイル変更時に自動的に RuboCop を実行する &lt;a href="https://github.com/guard/guard"&gt;Guard&lt;/a&gt; プラグイン、&lt;a href="https://github.com/yujinakayama/guard-rubocop"&gt;guard-rubocop&lt;/a&gt; も書いたので、Guard ファンの方は是非どうぞ。&lt;/p&gt;
+
+&lt;p&gt;あなたも RuboCop を使って、ナウでヤングな Rubyist になりませんか？&lt;/p&gt;
+</content>
+  </entry>
+</feed>
