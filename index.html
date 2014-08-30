@@ -194,7 +194,7 @@ Rubyのレベルで見ると変換前後でのプログラムの意味は等価�
 元のソースから得られたASTの構造を組み替え（AST変換）、
 その組み替えられたASTから意味的に等価になるソースを自動生成するという方法がある。</p>
 
-<p><img alt="AST Transformation" src="ast_transformation-c94d4cfa.svg" /></p>
+<p><img src="/posts/transpec-first/ast_transformation-c94d4cfa.svg" alt="AST Transformation" /></p>
 
 <p>この方法を使えば、ASTだけを見れば良いので変換のロジックはシンプルになるし、
 少なくともRubyレベルで不正なソースコードを吐き出すことはなくなる。</p>
@@ -407,7 +407,7 @@ RSpecのシェアを考えれば自分一人がそのくらいの労力をかけ
 </div>
 </div></article><article><h2 class="title"><a href="/posts/testing-uiview-drawing-with-fbsnapshottestcase/">FBSnapshotTestCaseでUIViewの描画をテストする</a></h2><p class="date">Feb 14th, 2014</p><div class="body"><p>先日、iOS 7のMusic.app内の再生状態インジケータのクローンなビュー、<a href="https://github.com/yujinakayama/NAKPlaybackIndicatorView"><code>NAKPlaybackIndicatorView</code></a>を作りました。</p>
 
-<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/music_app.png" width="320" height="150" alt="Music.app" /></p>
+<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/music_app-5b27249f.png" width="320" height="150" alt="Music.app" /></p>
 
 <p>このプロジェクトでは、ビューが期待通りに描画できているかのテストに<code>FBSnapshotTestCase</code>というものを使っています。</p>
 
@@ -455,7 +455,7 @@ Facebookによる、ビューの“snapshot test”ライブラリです。
 ここに手動で設定を追加するのはメンテナンス性に欠けるため、プロジェクトそのもののBuild Settingsに設定を追加することにします。
 以下のように、テストターゲットの <strong>Build Settings</strong> 内、 <strong>Preprosessor Macros</strong> に<code>FB_REFERENCE_IMAGE_DIR=&quot;\&quot;$(SOURCE_ROOT)/$(PROJECT_NAME)Tests/ReferenceImages\&quot;&quot;</code>を追加します。テストターゲットのファイル群を入れているディレクトリ名をXcodeデフォルトの<code>$(PROJECT_NAME)Tests</code>から変更している場合は、パス中のその部分を合わせます。また、ソース内への展開時に<a href="https://github.com/facebook/ios-snapshot-test-case/blob/1.0/FBSnapshotTestCase.h#L24">Cの文字列リテラルになる必要がある</a>ことに注意して下さい。</p>
 
-<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/fb_reference_image_dir.png" alt="FB_REFERENCE_IMAGE_DIR" /></p>
+<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/fb_reference_image_dir-b88bb69e.png" alt="FB_REFERENCE_IMAGE_DIR" /></p>
 
 <p>ちなみにこの例ではXcodeのビルド設定<code>SOURCE_ROOT</code>や<code>PROJECT_NAME</code>の値を参照しているため、
 ソース内で<code>#define</code>してもこれらは展開されません。</p>
@@ -525,7 +525,7 @@ Gitなどのバージョン管理システムにコミットしてはいけま�
 <code>MyProjectTests/ReferenceImages/SnapshotTests/testLabel@2x.png</code>のようなファイルが生成されており、
 <code>Preview.app</code>なりで開いてみると以下のような内容になっているのが確認できます。</p>
 
-<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/testLabel@2x.png" width="30" height="21" alt="Foo" class="border" /></p>
+<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/testLabel@2x-75555f83.png" width="30" height="21" alt="Foo" class="border" /></p>
 
 <p>適切に表示されているのが確認できたら<code>self.recordMode = NO;</code>に戻し、もう一度テストを実行してパスすることを確認します。
 その後、テストファイルと生成された画像ファイルをコミットします。</p>
