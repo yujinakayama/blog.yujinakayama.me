@@ -1,6 +1,6 @@
 <!DOCTYPE html><html lang="en"><head><meta charset="utf-8" /><meta content="IE=edge" http-equiv="X-UA-Compatible" /><meta content="width=device-width, initial-scale=1.0" name="viewport" /><title>FBSnapshotTestCaseでUIViewの描画をテストする – blog.yujinakayama.me</title><link rel="alternate" type="application/atom+xml" title="Atom Feed" href="/feed.xml" /><link href="../../stylesheets/all-d4d309f2.css" rel="stylesheet" type="text/css" /></head><body><header><h1><a href="/">blog.yujinakayama.me</a></h1><nav class="social"><ul><li><a class="twitter" href="http://twitter.com/nkym37" target="_blank"><span class="text">Twitter</span></a></li><li><a class="github" href="https://github.com/yujinakayama" target="_blank"><span class="text">GitHub</span></a></li></ul></nav></header><main><article><h2 class="title"><a href="/posts/testing-uiview-drawing-with-fbsnapshottestcase/">FBSnapshotTestCaseでUIViewの描画をテストする</a></h2><p class="date">Feb 14th, 2014</p><div class="body"><p>先日、iOS 7のMusic.app内の再生状態インジケータのクローンなビュー、<a href="https://github.com/yujinakayama/NAKPlaybackIndicatorView"><code>NAKPlaybackIndicatorView</code></a>を作りました。</p>
 
-<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/music_app-5b27249f.png" width="320" height="150" alt="Music.app" /></p>
+<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/music_app.png" width="320" height="150" alt="Music.app" /></p>
 
 <p>このプロジェクトでは、ビューが期待通りに描画できているかのテストに<code>FBSnapshotTestCase</code>というものを使っています。</p>
 
@@ -48,7 +48,7 @@ Facebookによる、ビューの“snapshot test”ライブラリです。
 ここに手動で設定を追加するのはメンテナンス性に欠けるため、プロジェクトそのもののBuild Settingsに設定を追加することにします。
 以下のように、テストターゲットの <strong>Build Settings</strong> 内、 <strong>Preprosessor Macros</strong> に<code>FB_REFERENCE_IMAGE_DIR=&quot;\&quot;$(SOURCE_ROOT)/$(PROJECT_NAME)Tests/ReferenceImages\&quot;&quot;</code>を追加します。テストターゲットのファイル群を入れているディレクトリ名をXcodeデフォルトの<code>$(PROJECT_NAME)Tests</code>から変更している場合は、パス中のその部分を合わせます。また、ソース内への展開時に<a href="https://github.com/facebook/ios-snapshot-test-case/blob/1.0/FBSnapshotTestCase.h#L24">Cの文字列リテラルになる必要がある</a>ことに注意して下さい。</p>
 
-<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/fb_reference_image_dir-b88bb69e.png" alt="FB_REFERENCE_IMAGE_DIR" /></p>
+<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/fb_reference_image_dir.png" alt="FB_REFERENCE_IMAGE_DIR" /></p>
 
 <p>ちなみにこの例ではXcodeのビルド設定<code>SOURCE_ROOT</code>や<code>PROJECT_NAME</code>の値を参照しているため、
 ソース内で<code>#define</code>してもこれらは展開されません。</p>
@@ -118,7 +118,7 @@ Gitなどのバージョン管理システムにコミットしてはいけま�
 <code>MyProjectTests/ReferenceImages/SnapshotTests/testLabel@2x.png</code>のようなファイルが生成されており、
 <code>Preview.app</code>なりで開いてみると以下のような内容になっているのが確認できます。</p>
 
-<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/testLabel@2x-75555f83.png" width="30" height="21" alt="Foo" class="border" /></p>
+<p><img src="/posts/testing-uiview-drawing-with-fbsnapshottestcase/testLabel@2x.png" width="30" height="21" alt="Foo" class="border" /></p>
 
 <p>適切に表示されているのが確認できたら<code>self.recordMode = NO;</code>に戻し、もう一度テストを実行してパスすることを確認します。
 その後、テストファイルと生成された画像ファイルをコミットします。</p>
